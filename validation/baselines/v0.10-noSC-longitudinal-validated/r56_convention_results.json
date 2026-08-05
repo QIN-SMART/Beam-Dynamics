@@ -1,0 +1,210 @@
+{
+  "part1": {
+    "K0_keV": 100.0,
+    "E0_J": 1.6021766339999998e-14,
+    "gamma0": 1.1956951213972045,
+    "beta0": 0.5482208651975485,
+    "p0_kg_m_s": 1.790134694851347e-22,
+    "deltas": [
+      -0.001,
+      -0.0005,
+      -0.0001,
+      0.0001,
+      0.0005,
+      0.001
+    ],
+    "definitions": {
+      "delta_p": "(p-p0)/p0 momentum deviation",
+      "delta_E": "dE/E0 energy deviation",
+      "p_ocelot": "dE/(c*p0) \u2014 OCELOT native rparticles[5]",
+      "Delta_t": "t_particle - t_reference (lab)",
+      "Delta_ct": "c*Delta_t",
+      "Delta_z": "-beta0*c*Delta_t (co-moving spatial, head positive)",
+      "signs": "delta_p>0 -> arrives earlier (Delta_t<0), ahead (Delta_z>0)"
+    }
+  },
+  "part2": {
+    "R56_t_exact_fit": {
+      "fit": -2.1279100416387826e-09,
+      "ref": -2.127907896382216e-09,
+      "abs_err": -2.1452565665498974e-15,
+      "rel_err": 1.0081529234405195e-06
+    },
+    "R56_ct_exact_fit": {
+      "fit": -0.637931381785773,
+      "ref": -0.6379307386540339,
+      "abs_err": -6.431317390864777e-07,
+      "rel_err": 1.0081529233775712e-06
+    },
+    "R56_z_exact_fit": {
+      "fit": 0.34972729405926417,
+      "ref": 0.3497269414810257,
+      "abs_err": 3.525782384938836e-07,
+      "rel_err": 1.008152923537384e-06
+    }
+  },
+  "part3": {
+    "ocelot_version": "26.06.1",
+    "ocelot_file": "/opt/anaconda3/lib/python3.12/site-packages/ocelot/__init__.py",
+    "E_tot_GeV": 0.000611,
+    "beta0": 0.5482208651975485,
+    "gamma0": 1.1956951213972045,
+    "R56_transfer_map": -1.1636236536888416,
+    "raw_tau_before": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "raw_p_before": [
+      -0.001,
+      -0.0005,
+      -0.0001,
+      0.0001,
+      0.0005,
+      0.001
+    ],
+    "raw_tau_after": [
+      0.0011636236536888415,
+      0.0005818118268444207,
+      0.00011636236536888416,
+      -0.00011636236536888416,
+      -0.0005818118268444207,
+      -0.0011636236536888415
+    ],
+    "raw_p_after": [
+      -0.001,
+      -0.0005,
+      -0.0001,
+      0.0001,
+      0.0005,
+      0.001
+    ],
+    "d_tau_raw": [
+      0.0011636236536888415,
+      0.0005818118268444207,
+      0.00011636236536888416,
+      -0.00011636236536888416,
+      -0.0005818118268444207,
+      -0.0011636236536888415
+    ],
+    "slope_d_tau_raw": -1.1636236536888418,
+    "vs_ct_exact": {
+      "fit": -1.1636236536888418,
+      "ref": -0.6379307386540339,
+      "abs_err": -0.5256929150348079,
+      "rel_err": 0.8240595462509991
+    },
+    "vs_ct_beta2": {
+      "fit": -1.1636236536888418,
+      "ref": -1.163638196120388,
+      "abs_err": 1.4542431546304968e-05,
+      "rel_err": -1.2497382429340976e-05
+    },
+    "vs_transfer_map": {
+      "fit": -1.1636236536888418,
+      "ref": -1.1636236536888416,
+      "abs_err": -2.220446049250313e-16,
+      "rel_err": 1.908216666283127e-16
+    }
+  },
+  "part4_source": {
+    "beam_docstring": {
+      "file": "/opt/anaconda3/lib/python3.12/site-packages/ocelot/cpbd/beam/beam.py",
+      "hits": [
+        [
+          211,
+          ":param sigma_p: Standard deviation of cannonical coordinate p=dE/(c*p0)."
+        ]
+      ]
+    },
+    "r_matrix_r56": {
+      "file": "/opt/anaconda3/lib/python3.12/site-packages/ocelot/cpbd/r_matrix.py",
+      "hits": [
+        [
+          65,
+          "igamma2 = 0."
+        ],
+        [
+          68,
+          "igamma2 = 1. / (gamma * gamma)"
+        ],
+        [
+          70,
+          "beta = np.sqrt(1. - igamma2)"
+        ],
+        [
+          75,
+          "r56 = hx * hx * (z - sx) / kx2 / beta ** 2"
+        ],
+        [
+          79,
+          "r56 = hx * hx * z ** 3 / 6. / beta ** 2"
+        ],
+        [
+          81,
+          "r56 -= z / (beta * beta) * igamma2"
+        ]
+      ]
+    },
+    "solenoid_r56": {
+      "file": "/opt/anaconda3/lib/python3.12/site-packages/ocelot/cpbd/elements/solenoid_atom.py",
+      "hits": [
+        [
+          70,
+          "r56 = 0."
+        ],
+        [
+          74,
+          "r56 -= l / (beta * beta * gamma2)"
+        ],
+        [
+          79,
+          "[0., 0., 0., 0., 1., r56],"
+        ]
+      ]
+    }
+  },
+  "part5": {
+    "map": "Delta_z_AG = (L/gamma0^2)*delta  [spatial, delta=delta_p]",
+    "delta_z_ag": [
+      -0.0003497269414810257,
+      -0.00017486347074051285,
+      -3.497269414810257e-05,
+      3.497269414810257e-05,
+      0.00017486347074051285,
+      0.0003497269414810257
+    ],
+    "delta_z_exact": [
+      -0.0003501296414567169,
+      -0.00017496409339601082,
+      -3.497671738101573e-05,
+      3.496867175132279e-05,
+      0.0001747629526042018,
+      0.0003493250776592885
+    ],
+    "max_rel_err": 0.0011504007225303092,
+    "quadratic_curvature": -0.40228192700301646,
+    "where_used": "AG envelope_ode: dC_zd/dz = sigma_delta^2/gamma^2 (R56_z = L/gamma^2); entered via make_beam_100keV sigma_delta and the drift dynamics"
+  },
+  "part6": {
+    "derived_transforms": {
+      "delta_t": "Delta_tau / c",
+      "delta_p": "p_ocelot / beta0",
+      "delta_z": "-beta0 * Delta_tau"
+    },
+    "closure_after_formal_conversion_max_rel_residual": 0.0021102389130303874,
+    "closure_naive_feeding_max_rel_residual": 0.8261579456709444,
+    "expected_naive_residual_1_over_beta_minus_1": 0.8240823425056163,
+    "residual_formal_per_delta": [
+      0.0021102389130303874,
+      0.0010614744237574566,
+      0.000222309789725839,
+      0.00019732352066116504,
+      0.001036692088585245,
+      0.0020860938647233053
+    ]
+  }
+}

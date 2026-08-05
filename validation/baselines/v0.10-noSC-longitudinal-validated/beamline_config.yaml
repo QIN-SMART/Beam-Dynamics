@@ -1,0 +1,86 @@
+# UED Beamline Configuration — SHARED (single source of truth)
+# ============================================================
+# Read by BOTH independent routes:
+#   - GPT模拟/ : OCELOT macroparticle tracking
+#   - AG/      : Kelisani 6D envelope ODE
+#
+# GEOMETRY REFACTOR (2026-08-01): lattice.elements is the ONLY geometry
+# definition and carries every element's physical parameters.  The former
+# top-level `solenoid:` / `rf_cavity:` sections have been REMOVED — their
+# parameters now live inside each element's `parameters:` block.
+# Element fields: name, type, z_start, length, parameters.
+# Element types: cathode, drift, solenoid, rf_cavity, sample.
+
+beam:
+  energy_keV: 100.0          # beam kinetic energy
+  charge_fC: 100.0           # bunch charge [fC]
+  n_particles: 50000         # number of macroparticles (GPT) / Ne (AG)
+
+initial_distribution:
+  spot_rms_um: 85.0          # RMS transverse spot size [μm]
+  bunch_length_um: 300.0     # RMS bunch length [μm]
+  epsilon_n_mm_mrad: 0.08    # normalized transverse emittance [mm·mrad]
+  # normalized LONGITUDINAL emittance [mm·mrad] (AG only)
+  # consistent value: βγ·σ_z·σ_δ = 0.6556·300e-6·1e-4 = 0.02 µm
+  epsilon_nz_mm_mrad: 0.02
+  sigma_delta: 1.0e-4        # relative energy spread ΔE/E
+
+space_charge:
+  enabled: false             # SC off by default (enable for SC mode)
+  mesh: [63, 63, 63]        # PIC mesh dimensions (GPT)
+  step: 1                    # apply every step
+
+physics_switches:
+  # RF thin-lens model switches — read identically by BOTH backends.
+  # Longitudinal: standardized thin-lens kick (δ += K·sin(φ+kz), H = eV·k·cosφ/(β²E₀))
+  # Transverse  : Panofsky-Wenzel RF transverse kick (x' += K_trans·x).
+  rf_longitudinal_kick: true
+  rf_transverse_kick: false
+
+lattice:
+  # THE ONLY GEOMETRY DEFINITION (single source of truth).
+  # z_start/length in [m]; each element carries its own physical parameters.
+  elements:
+    - name: cathode
+      type: cathode
+      z_start: 0.000
+      length: 0.000
+      parameters: {}
+    - name: drift1
+      type: drift
+      z_start: 0.000
+      length: 0.100          # cathode → solenoid
+      parameters: {}
+    - name: solenoid1
+      type: solenoid         # TL1
+      z_start: 0.100
+      length: 0.060
+      parameters:
+        B_field_T: 0.05      # on-axis magnetic field [T]
+    - name: drift2
+      type: drift
+      z_start: 0.160
+      length: 0.240          # solenoid → RF
+      parameters: {}
+    - name: rf1
+      type: rf_cavity        # RF longitudinal lens
+      z_start: 0.400
+      length: 0.022
+      parameters:
+        frequency_GHz: 2.856 # S-band
+        voltage_kV: 30.0     # cavity voltage [kV]
+        phase_rad: 3.1416    # RF phase [rad] (π for max chirp)
+    - name: drift3
+      type: drift
+      z_start: 0.422
+      length: 0.355          # RF → sample
+      parameters: {}
+    - name: sample
+      type: sample           # diagnostic plane
+      z_start: 0.777
+      length: 0.000
+      parameters: {}
+
+output:
+  z_diagnostics_mm: [0, 100, 160, 400, 422, 500, 600, 700, 777]  # probe positions
+  step_size_m: 0.005       # tracking step
