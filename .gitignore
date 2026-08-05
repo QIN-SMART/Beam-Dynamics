@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Editors
+.vscode/
+
+# Legacy / historical directories (kept on disk, not committed)
+Okemos1.22b_imagSystem/
+AG-prime/
+notes-codes/
+codes-result/
+code-update-log/
+log/
+
+# Reference literature (PDFs kept on disk, not committed)
+文献/
+
+# Regenerable figures — keep only the frozen baseline review summary
+*.png
+!validation/baselines/**
+
+# Regenerable result data (produced by the validation tests)
+validation/reports/*_results.json
+validation/reports/r56_convention_results.json
+shared/results/*.json

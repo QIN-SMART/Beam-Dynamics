@@ -1,0 +1,28 @@
+{
+  "drift": {
+    "sigma_z_sample_before_um": 316.53627778740827,
+    "sigma_z_sample_after_um": 306.1090087343158,
+    "sigma_t_sample_before_fs": 1925.961360891305,
+    "sigma_t_sample_after_fs": 1862.5167616300425,
+    "sigma_delta_sample_before": 0.09995661271249186,
+    "sigma_delta_sample_after": 0.09995661271249184
+  },
+  "rf": {
+    "sigma_z_sample_before_um": 1112.8024222528925,
+    "sigma_z_sample_after_um": 476.26416834020824,
+    "sigma_t_sample_before_fs": 6770.8336072769025,
+    "sigma_t_sample_after_fs": 2897.823883606562,
+    "sigma_delta_sample_before": 2.9417933461172736,
+    "sigma_delta_sample_after": 2.953044553058114
+  },
+  "full": {
+    "sigma_z_sample_before_um": 1117.4590786679037,
+    "sigma_z_sample_after_um": 473.7718393216156,
+    "sigma_t_sample_before_fs": 6799.1669799599595,
+    "sigma_t_sample_after_fs": 2882.6593362062117,
+    "sigma_delta_sample_before": 2.9540986005628955,
+    "sigma_delta_sample_after": 2.9384188569923104
+  },
+  "AG_invariant_max_rel_diff": 0.0,
+  "config_sha_unchanged": true
+}

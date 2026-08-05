@@ -1,0 +1,47 @@
+# UED Beamline Configuration
+# ===========================
+# Central parameter file for the complete UED beamline assembly.
+# All validated modules (drift, solenoid, RF, SC) use these values.
+
+beam:
+  energy_keV: 100.0          # beam kinetic energy
+  charge_fC: 100.0           # bunch charge [fC]
+  n_particles: 50000         # number of macroparticles
+
+initial_distribution:
+  spot_rms_um: 85.0          # RMS transverse spot size [μm]
+  bunch_length_um: 300.0     # RMS bunch length [μm]
+  epsilon_n_mm_mrad: 0.08    # normalized emittance [mm·mrad]
+  sigma_delta: 1.0e-4        # relative energy spread ΔE/E
+
+solenoid:
+  B_field_T: 0.05            # on-axis magnetic field [T]
+  length_m: 0.06             # solenoid physical length [m]
+  z_start_m: 0.100           # solenoid entrance position [m]
+
+rf_cavity:
+  frequency_GHz: 2.856       # S-band
+  voltage_kV: 30.0           # cavity voltage [kV]
+  phase_rad: 3.1416          # RF phase [rad] (π for max chirp)
+  length_m: 0.022            # cavity physical length [m]
+  z_start_m: 0.400           # cavity entrance position [m]
+
+space_charge:
+  enabled: false             # SC off by default (enable for SC mode)
+  mesh: [63, 63, 63]        # PIC mesh dimensions
+  step: 1                    # apply every step
+
+lattice:
+  # element: [z_start_m, length_m, type]
+  elements:
+    - [0.000, 0.000, cathode]
+    - [0.000, 0.100, drift]       # cathode → solenoid
+    - [0.100, 0.060, solenoid]    # TL1
+    - [0.160, 0.240, drift]       # solenoid → RF
+    - [0.400, 0.022, rf_cavity]   # RF longitudinal lens
+    - [0.422, 0.355, drift]       # RF → sample
+    - [0.777, 0.000, sample]      # diagnostic plane
+
+output:
+  z_diagnostics_mm: [0, 100, 160, 400, 422, 500, 600, 700, 777]  # probe positions
+  step_size_m: 0.005       # tracking step
