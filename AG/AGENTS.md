@@ -902,4 +902,13 @@ C级：
 * 为使两模型吻合而准备修改参数；
 * 无法确认某变量的定义或单位。
 应立即停止，并在最终回复中给出第一个失败点、相关文件和建议上传给 GPT 审核的材料。
+
+三、任务收尾自动同步
+每次任务完成后，自动运行：
+
+    python3 scripts/sync_to_phone.py --gpt-review
+
+把 A 级审核文件（核心代码 + 最新报告/图/changelog + CHECKPOINTS）打包到
+iCloud Drive → UED_Sync → gpt_review/，并在最终回复中告知用户该包的路径
+与其中最值得发送的 A 级文件。
 ---
