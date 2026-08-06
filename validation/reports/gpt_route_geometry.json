@@ -1,0 +1,159 @@
+{
+  "source": "lattice.elements (single source)",
+  "config_sha": "dd8ada3d4cb2",
+  "steps": {
+    "1": {
+      "active_types": [
+        "drift"
+      ],
+      "elements": [
+        [
+          "drift1",
+          "Drift",
+          0.1
+        ],
+        [
+          "solenoid1",
+          "Drift",
+          0.06
+        ],
+        [
+          "drift2",
+          "Drift",
+          0.24
+        ],
+        [
+          "rf1",
+          "Drift",
+          0.022
+        ],
+        [
+          "drift3",
+          "Drift",
+          0.355
+        ]
+      ],
+      "total_length_m": 0.777,
+      "solenoids_active": 0,
+      "rf_kicks": []
+    },
+    "2": {
+      "active_types": [
+        "drift",
+        "solenoid"
+      ],
+      "elements": [
+        [
+          "drift1",
+          "Drift",
+          0.1
+        ],
+        [
+          "solenoid1",
+          "Solenoid",
+          0.06
+        ],
+        [
+          "drift2",
+          "Drift",
+          0.24
+        ],
+        [
+          "rf1",
+          "Drift",
+          0.022
+        ],
+        [
+          "drift3",
+          "Drift",
+          0.355
+        ]
+      ],
+      "total_length_m": 0.777,
+      "solenoids_active": 1,
+      "rf_kicks": []
+    },
+    "3": {
+      "active_types": [
+        "drift",
+        "rf_cavity",
+        "solenoid"
+      ],
+      "elements": [
+        [
+          "drift1",
+          "Drift",
+          0.1
+        ],
+        [
+          "solenoid1",
+          "Solenoid",
+          0.06
+        ],
+        [
+          "drift2",
+          "Drift",
+          0.24
+        ],
+        [
+          "rf1_BODY",
+          "Drift",
+          0.022
+        ],
+        [
+          "drift3",
+          "Drift",
+          0.355
+        ]
+      ],
+      "total_length_m": 0.777,
+      "solenoids_active": 1,
+      "rf_kicks": [
+        0.4
+      ]
+    },
+    "4": {
+      "active_types": [
+        "drift",
+        "rf_cavity",
+        "solenoid"
+      ],
+      "elements": [
+        [
+          "drift1",
+          "Drift",
+          0.1
+        ],
+        [
+          "solenoid1",
+          "Solenoid",
+          0.06
+        ],
+        [
+          "drift2",
+          "Drift",
+          0.24
+        ],
+        [
+          "rf1_BODY",
+          "Drift",
+          0.022
+        ],
+        [
+          "drift3",
+          "Drift",
+          0.355
+        ]
+      ],
+      "total_length_m": 0.777,
+      "solenoids_active": 1,
+      "rf_kicks": [
+        0.4
+      ]
+    }
+  },
+  "sample_position_m": 0.777,
+  "rf_kick_positions_m": [
+    0.4
+  ]
+}

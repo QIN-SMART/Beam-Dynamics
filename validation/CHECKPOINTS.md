@@ -633,3 +633,48 @@
   full beamline: sample devs — σ_x 0.26%, σ_y 0.39%, σ_δ 0.98%, ε_nx 0.14%, ε_ny 0.09% (PASS)
   R56 resolved — σ_z: AG 477 vs OCELOT 471 um (1.17%, PASS), waist Δz=0.6 mm
   switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [drift] 2026-08-06 10:55
+  drift transverse: AG vs OCELOT max rel dev {'sigma_x_um': 0.43301417903757716, 'sigma_y_um': 0.7039260117123852, 'sigma_z_um': 1.2994156746116554, 'eps_nx_mm_mrad': 0.27476842355856385, 'sigma_delta_e3': 0.043406120246349426}
+  analytic drift reference matches (sigma_x=sqrt(s0^2+(s0'z)^2))
+  sigma_z analytic ref sqrt(sz0^2+(z*sd_p/gamma^2)^2): AG=1.75% OCELOT=0.46%
+  R56 adapter σ_δ_p semantic: 0.043% (PASS)
+  verdict: PASS — report /Users/qin/Desktop/shuyan/Beam_dynamics_simu/validation/reports/drift_AG_vs_OCELOT.png
+
+## [solenoid] 2026-08-06 10:55
+  ROOT CAUSE: AG reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, dnu_y⊃+2ks·nu_x, dsxy⊃2ks(sx^2-sy^2)).
+  Exact hard-edge 4x4 (Brown-Chao, == OCELOT SolenoidTM) gives sxy≡0 for a round uncorrelated beam; AG coupling creates spurious sxy and under-focusing.
+  k_s (Bz/(2Brho)) = 22.3751 m^-1, k_s^2 = 500.65 m^-2 — identical in both backends.
+  AG as-is:  sx=963.4 sy=2468.9 um (x-y broken)
+  AG coupling=OFF: sx=1984.2 sy=1984.2 um
+  OCELOT (ref):    sx=1989.4 sy=1991.9 um
+  AG(off) vs OCELOT sigma_x max dev = 0.40% (<1% PASS) | AG(on) = 390.73% (FAIL)
+  FIX: for round beams the coupling must be disabled in the AG force adapter (validation/backend.run_ag solenoid_coupling=False). Not a parameter tune; enforces exact round-beam transport.
+
+## [rf] 2026-08-06 10:55
+  RF standardized to thin-lens in BOTH backends (Option A):
+    longitudinal kick δ += K·sin(φ+kz), H=-9.779 m^-1, σ_δ AG=2.953e-3 vs OCELOT=2.924e-3 (PASS)
+    transverse RF kick K_trans=-2.680 m^-1 added to OCELOT; σ_x AG=1119 vs OCELOT=1120 um (PASS)
+    switch OFF vs ON: AG σ_x 1119->542 um, OCELOT 1120->535 um (both read physics_switches.rf_transverse_kick)
+    R56 adapter: kick semantic PASS, routing {'drift': 0, 'solenoid': 0, 'rf': 1, 'full': 1} PASS
+  RESOLVED: input δ-variable convention (B) fixed by the adapter; σ_z at sample agrees with AG (residual few-µm at the waist).
+
+## [full] 2026-08-06 10:55
+  full beamline: sample devs — σ_x 0.26%, σ_y 0.39%, σ_δ 0.98%, ε_nx 0.14%, ε_ny 0.09% (PASS)
+  R56 resolved — σ_z: AG 477 vs OCELOT 471 um (1.17%, PASS), waist Δz=0.6 mm
+  switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [gpt-lattice-single-source] 2026-08-05
+  GPT main route refactored: ued_beamline_v2.py builds from lattice.elements
+  ONLY (build_lattice_from_shared(cfg, active_types)); hardcoded drifts
+  (0.100/0.240/0.355/0.777) removed; step semantics via STEP_ACTIVE;
+  multi-instance solenoid/RF supported; RF kick per instance at own z_start;
+  transverse gated by shared switch; module importable (main() guard).
+  Verified (validation/test_gpt_route_equivalence.py PASS):
+  A geometry exact match; B step routing (0/0/N_rf/N_rf, runtime σ_δ gating,
+  total length 777mm every step); C sample regression <2% (σ_x 0.65%,
+  σ_z 0.43%, σ_δ_p 0.43%); D baseline run_all + r56 unchanged, AG unchanged,
+  config SHA dd8ada3d4cb2 unchanged. No physics/R56/SC/random/param changes.
+  Reports: gpt_route_lattice_equivalence.md, gpt_route_geometry.json,
+  gpt_route_before_after.json, review_summary_gpt_lattice.png;
+  CHANGELOG_gpt_lattice_single_source.md.
