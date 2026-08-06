@@ -19,6 +19,10 @@ Usage
   python3 scripts/sync_to_phone.py --force      # treat all files as changed
   python3 scripts/sync_to_phone.py --files      # also copy individual files
   python3 scripts/sync_to_phone.py --images     # ... including images
+  python3 scripts/sync_to_phone.py --gpt-review # upload the A-level GPT review
+                                                # package (core code + latest
+                                                # report/figure/changelog) to
+                                                # UED_Sync/gpt_review/
 
 iPhone: Files app → iCloud Drive → UED_Sync/ → latest_bundle.md
 """
@@ -131,6 +135,107 @@ def build_bundle(rels, changed_paths):
     return "\n".join(lines)
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  GPT-review package — the A-level files most worth sending to GPT
+# ══════════════════════════════════════════════════════════════════════
+
+# Always-shipped core files (highest data-flow / physics risk, per the
+# project review spec).  Flattened names used in the iCloud folder.
+GPT_REVIEW_CORE = [
+    "validation/backend.py",
+    "shared/beamline_config.yaml",
+    "shared/params.py",
+    "validation/test_rf.py",
+    "validation/test_full_beamline.py",
+    "validation/test_gpt_route_equivalence.py",
+    "validation/run_all.py",
+    "GPT模拟/ued_beamline_v2.py",
+    "AG/run_shared.py",
+    "AGENTS.md",
+    "validation/CHECKPOINTS.md",
+]
+
+# Auto-picked latest artifacts (one per category, by mtime).
+GPT_REVIEW_LATEST = [
+    ("validation/reports/*.md", "latest_report.md"),
+    ("validation/reports/review_summary*.png", "latest_review.png"),
+    ("CHANGELOG_*.md", "latest_changelog.md"),
+    ("validation/baselines/*/BASELINE_MANIFEST.md", "latest_manifest.md"),
+]
+
+
+def _newest(glob_pattern):
+    import glob
+    cands = [p for p in glob.glob(os.path.join(PROJECT_ROOT, glob_pattern))
+             if os.path.isfile(p)]
+    if not cands:
+        return None
+    return max(cands, key=os.path.getmtime)
+
+
+def sync_gpt_review(sync_dir):
+    """Copy the A-level GPT-review package into iCloud/UED_Sync/gpt_review/."""
+    dest = os.path.join(sync_dir, "gpt_review")
+    os.makedirs(dest, exist_ok=True)
+    copied = []          # (flattened_name, original_relpath, why)
+
+    for rel in GPT_REVIEW_CORE:
+        src = os.path.join(PROJECT_ROOT, rel)
+        if not os.path.isfile(src):
+            continue
+        flat = "core_" + rel.replace("/", "_")
+        shutil.copy2(src, os.path.join(dest, flat))
+        copied.append((flat, rel, "core"))
+
+    for glob_pattern, out_name in GPT_REVIEW_LATEST:
+        latest = _newest(glob_pattern)
+        if latest is None:
+            continue
+        rel = os.path.relpath(latest, PROJECT_ROOT)
+        shutil.copy2(latest, os.path.join(dest, out_name))
+        copied.append((out_name, rel, "latest"))
+
+    # A/B/C level map (matches the project review spec)
+    readme = [
+        "# GPT-review package — what to send and why",
+        "",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "Folder: iCloud Drive → UED_Sync → gpt_review/",
+        "",
+        "## A-level (strongly recommended — high-risk, hard to verify by text)",
+        "",
+        "- core_validation_backend.py  : dual-backend adapter, RF/R56 conversions,",
+        "                                element assembly, switches.",
+        "- core_GPT模拟_ued_beamline_v2.py : main route (lattice single source).",
+        "- core_validation_test_rf.py / test_full_beamline.py /",
+        "  test_gpt_route_equivalence.py : acceptance tests.",
+        "- latest_review.png           : one merged figure with the key curves.",
+        "",
+        "## B-level (send when something looks wrong)",
+        "",
+        "- core_shared_beamline_config.yaml : when suspecting parameter source.",
+        "- core_shared_params.py / AG_run_shared.py.",
+        "- latest_report.md / latest_changelog.md.",
+        "",
+        "## C-level (archive only)",
+        "",
+        "- core_AGENTS.md, core_validation_CHECKPOINTS.md : provenance/history,",
+        "  not direct evidence.",
+        "- latest_manifest.md (baseline snapshot).",
+        "",
+        "## Copied in this run",
+        "",
+    ]
+    for flat, rel, why in copied:
+        readme.append(f"- {flat}   ← {rel}   [{why}]")
+    with open(os.path.join(dest, "REVIEW_LIST.txt"), "w") as f:
+        f.write("\n".join(readme) + "\n")
+
+    print(f"GPT-review package -> {dest}")
+    print(f"  files copied: {len(copied)}  (list: gpt_review/REVIEW_LIST.txt)")
+    return dest
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
@@ -141,6 +246,8 @@ def main():
                     help="include images/binaries in the individual copies")
     ap.add_argument("--no-bundle", action="store_true",
                     help="skip the merged latest_bundle.md")
+    ap.add_argument("--gpt-review", action="store_true",
+                    help="upload the A-level GPT-review package to gpt_review/")
     ap.add_argument("--max-mb", type=float, default=MAX_FILE_MB)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -152,6 +259,10 @@ def main():
             print(f"iCloud Drive not found at {ICLOUD_ROOT}")
             sys.exit(1)
         sync_dir = os.path.join(ICLOUD_ROOT, SYNC_DIR_NAME)
+
+    if args.gpt_review:
+        sync_gpt_review(sync_dir)
+        return 0
     os.makedirs(os.path.join(sync_dir, FILES_SUBDIR), exist_ok=True)
 
     manifest_path = os.path.join(sync_dir, MANIFEST_NAME)
