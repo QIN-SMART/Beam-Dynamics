@@ -678,3 +678,54 @@
   Reports: gpt_route_lattice_equivalence.md, gpt_route_geometry.json,
   gpt_route_before_after.json, review_summary_gpt_lattice.png;
   CHANGELOG_gpt_lattice_single_source.md.
+
+## [drift] 2026-08-08 12:26
+  drift transverse: AG vs OCELOT max rel dev {'sigma_x_um': 0.47889966582113885, 'sigma_y_um': 0.3071841772479801, 'sigma_z_um': 1.9474872884866767, 'eps_nx_mm_mrad': 0.4992211367450183, 'sigma_delta_e3': 0.043406120246349426}
+  analytic drift reference matches (sigma_x=sqrt(s0^2+(s0'z)^2))
+  sigma_z analytic ref sqrt(sz0^2+(z*sd_p/gamma^2)^2): AG=1.75% OCELOT=0.19%
+  R56 adapter σ_δ_p semantic: 0.043% (PASS)
+  verdict: PASS — report /Users/qin/Desktop/shuyan/Beam_dynamics_simu/validation/reports/drift_AG_vs_OCELOT.png
+
+## [solenoid] 2026-08-08 12:26
+  ROOT CAUSE: AG reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, dnu_y⊃+2ks·nu_x, dsxy⊃2ks(sx^2-sy^2)).
+  Exact hard-edge 4x4 (Brown-Chao, == OCELOT SolenoidTM) gives sxy≡0 for a round uncorrelated beam; AG coupling creates spurious sxy and under-focusing.
+  k_s (Bz/(2Brho)) = 22.3751 m^-1, k_s^2 = 500.65 m^-2 — identical in both backends.
+  AG as-is:  sx=963.4 sy=2468.9 um (x-y broken)
+  AG coupling=OFF: sx=1984.2 sy=1984.2 um
+  OCELOT (ref):    sx=1989.4 sy=1991.9 um
+  AG(off) vs OCELOT sigma_x max dev = 0.40% (<1% PASS) | AG(on) = 390.73% (FAIL)
+  FIX: for round beams the coupling must be disabled in the AG force adapter (validation/backend.run_ag solenoid_coupling=False). Not a parameter tune; enforces exact round-beam transport.
+
+## [rf] 2026-08-08 12:26
+  RF standardized to thin-lens in BOTH backends (Option A):
+    longitudinal kick δ += K·sin(φ+kz), H=-9.779 m^-1, σ_δ AG=2.953e-3 vs OCELOT=2.924e-3 (PASS)
+    transverse RF kick K_trans=-2.680 m^-1 added to OCELOT; σ_x AG=1119 vs OCELOT=1120 um (PASS)
+    switch OFF vs ON: AG σ_x 1119->542 um, OCELOT 1120->535 um (both read physics_switches.rf_transverse_kick)
+    R56 adapter: kick semantic PASS, routing {'drift': 0, 'solenoid': 0, 'rf': 1, 'full': 1} PASS
+  RESOLVED: input δ-variable convention (B) fixed by the adapter; σ_z at sample agrees with AG (residual few-µm at the waist).
+
+## [full] 2026-08-08 12:26
+  full beamline: sample devs — σ_x 0.26%, σ_y 0.39%, σ_δ 0.98%, ε_nx 0.14%, ε_ny 0.09% (PASS)
+  R56 resolved — σ_z: AG 477 vs OCELOT 471 um (1.17%, PASS), waist Δz=0.6 mm
+  switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [v0.12-architecture-governance] 2026-08-08
+  AUDIT phase (no physics change, 7 reports in validation/reports/v0.12_*.md):
+  - dataflow/hardcoding/module-responsibility/data-contract/maintainability/
+    architecture/regression audits completed.
+  IMPLEMENTED (A-class + safe B-class only):
+  - shared/constants.py: single physical-constants source (A1);
+    params/reference/backend import from it (values identical).
+  - backend.py meta += provenance (git commit, timestamp, lattice_hash,
+    python, coordinate convention) — traceability (Phase 9).
+  - validation/config_check.py + test_config_consistency.py: Level-1
+    read-only config consistency (Phase 7/10); added to run_all.
+  - YAML comment: sigma_delta semantics clarified to δ_p (B4, value
+    unchanged, config SHA unchanged dd8ada3d4cb2).
+  NOT modified: AG core, OCELOT core/R56, RF equations, SC, seeds policy,
+    lattice geometry, config values, test thresholds.
+  VERIFIED: 6/6 tests PASS + r56 unchanged; AG bit-identical to v0.10;
+  full-beamline σ_z 477.001/471.497 (1.17%), σ_δ_p 0.98%.
+  OPEN (recorded, not touched): γ/β/p0 derivation still duplicated (~12
+  sites, B2); rparticles magic indices (B2); seed(42) not configurable (B1);
+  backend.py adapter+physics mixing (debt); GPT route monolith (debt).

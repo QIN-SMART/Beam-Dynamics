@@ -17,15 +17,14 @@ import hashlib
 
 import yaml
 
+from shared.constants import (  # noqa: E402  (single source of constants)
+    C_SI, M_E_SI, E_SI, EPSILON_0, MEC2_KEV,
+)
+
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.join(_THIS_DIR, "beamline_config.yaml")
 
-# ── Physical constants (SI) ────────────────────────────────────────────────
-C_SI       = 2.99792458e8
-M_E_SI     = 9.10938356e-31
-E_SI       = 1.602176634e-19
-EPSILON_0  = 8.854187817e-12
-MEC2_KEV   = 511.0              # m_e c² in keV
+# ── Physical constants (SI) — single source: shared/constants.py ─────────
 
 
 def config_path(path: str = None) -> str:

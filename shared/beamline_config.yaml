@@ -23,7 +23,9 @@ initial_distribution:
   # normalized LONGITUDINAL emittance [mm·mrad] (AG only)
   # consistent value: βγ·σ_z·σ_δ = 0.6556·300e-6·1e-4 = 0.02 µm
   epsilon_nz_mm_mrad: 0.02
-  sigma_delta: 1.0e-4        # relative energy spread ΔE/E
+  # MOMENTUM deviation δ_p = Δp/p0 (project standard, see R56 audit;
+  # historically labeled ΔE/E — semantic clarified 2026-08-08, value unchanged)
+  sigma_delta: 1.0e-4
 
 space_charge:
   enabled: false             # SC off by default (enable for SC mode)

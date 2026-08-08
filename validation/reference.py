@@ -14,9 +14,7 @@ No physics is re-implemented here beyond these standard validation references.
 
 import numpy as np
 
-C_SI = 2.99792458e8
-M_E_SI = 9.10938356e-31
-E_SI = 1.602176634e-19
+from shared.constants import C_SI, M_E_SI, E_SI  # single source (v0.12)
 
 
 def gamma_beta_p(energy_keV):

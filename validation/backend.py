@@ -27,11 +27,44 @@ for p in (_REPO, _THIS_DIR, os.path.join(_REPO, "AG")):
         sys.path.insert(0, p)
 
 from shared.params import load_config, parse, derived, _lattice_elements, config_sha  # noqa: E402
+from shared.constants import C_SI, M_E_SI, E_SI  # noqa: E402  (single source)
 from beam_result import BeamResult  # noqa: E402
 
-C_SI   = 2.99792458e8
-M_E_SI = 9.10938356e-31
-E_SI   = 1.602176634e-19
+
+def _provenance(cfg):
+    """Provenance metadata for a simulation run (v0.12 traceability).
+
+    Recorded in every BeamResult.meta so any figure/result answers
+    'which version, which parameters, which backend produced this?'.
+    """
+    import subprocess
+    from datetime import datetime
+    import json as _json
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                                capture_output=True, text=True, timeout=5)
+        git_commit = commit.stdout.strip() or "unknown"
+    except Exception:
+        git_commit = "unknown"
+    try:
+        lattice_hash = _json.dumps(_lattice_elements(cfg),
+                                   sort_keys=True, default=str)
+        lattice_hash = hashlib_hex(lattice_hash)
+    except Exception:
+        lattice_hash = "unknown"
+    return {
+        "git_commit": git_commit,
+        "config_sha": config_sha(cfg),
+        "lattice_hash": lattice_hash,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "python": ".".join(__import__("sys").version.split()[:1]),
+        "coordinate_convention": "delta_p = dp/p0; OCELOT native p_oc = dE/(c*p0)",
+    }
+
+
+def hashlib_hex(s):
+    import hashlib
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -233,6 +266,7 @@ def run_ag(cfg, section, n_points=2000, sc_enabled=None,
         sigma_delta_e3=st[:, 4] * 1e3,
         meta={"section": section, "solenoid_coupling": solenoid_coupling,
               "sc_enabled": sc_enabled, "switches": sw, "config_sha": config_sha(cfg),
+              "provenance": _provenance(cfg),
               "rf": "thin-lens (H) + transverse kick" if sw["rf_transverse_kick"]
               else "thin-lens (H) only"},
     )
@@ -395,7 +429,7 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
         energy_keV=np.full_like(z_arr, P.beam.energy_keV),
         sigma_delta_e3=sd * 1e3,
         meta={"section": section, "sc_enabled": sc_enabled, "switches": sw,
-              "config_sha": config_sha(cfg),
+              "config_sha": config_sha(cfg), "provenance": _provenance(cfg),
               "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
               "reported_delta": "delta_p = dp/p0",
               "conversion_beta": float(d["beta"]),
