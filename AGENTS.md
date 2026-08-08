@@ -911,4 +911,27 @@ C级：
 把 A 级审核文件（核心代码 + 最新报告/图/changelog + CHECKPOINTS）打包到
 iCloud Drive → UED_Sync → gpt_review/，并在最终回复中告知用户该包的路径
 与其中最值得发送的 A 级文件。
+
+四、代码自动同步到 GitHub
+每次任务完成且代码变更通过验收后，必须自动同步到 GitHub 仓库：
+https://github.com/QIN-SMART/Beam-Dynamics
+
+执行流程：
+1. 检查变更范围（git status、git diff），确认没有误改或遗留临时文件。
+2. 只 add 与本轮任务相关的文件，禁止 add 大文件、数据结果、密钥或临时产物。
+3. 提交（git commit），提交信息用中文，格式：
+
+   <主题>：<一句话说明>
+
+   示例：
+
+   射频压缩：修复 tau 坐标单位不匹配（mm 与 m）
+
+4. 推送（git push）到 origin main。
+
+必须遵守：
+- 只有用户明确要求时才允许 push；若用户未要求，任务结束时在最终回复中提示
+  “代码已就绪，未推送，是否推送到 GitHub？”。
+- 推送前必须确保原有通过测试仍然通过（参照上文停止条件）。
+- 若 push 失败（如远程有他人提交），先 pull --rebase 再 push，不要强推。
 ---
