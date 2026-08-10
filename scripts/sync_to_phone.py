@@ -169,6 +169,9 @@ GPT_REVIEW_CORE = [
 GPT_REVIEW_LATEST = [
     ("validation/reports/*.md", "latest_report.txt"),
     ("validation/reports/review_summary*.png", "latest_review.png"),
+    ("validation/reports/SC_ocelot_source_audit.md", "sc_ocelot_source_audit.txt"),
+    ("validation/reports/SC_AG_model_audit.md", "sc_ag_model_audit.txt"),
+    ("validation/reports/SC_diagnostics.png", "sc_diagnostics.png"),
     ("CHANGELOG_*.md", "latest_changelog.txt"),
     ("validation/baselines/*/BASELINE_MANIFEST.md", "latest_manifest.txt"),
 ]
