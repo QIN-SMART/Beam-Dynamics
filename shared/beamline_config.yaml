@@ -39,6 +39,12 @@ physics_switches:
   rf_longitudinal_kick: true
   rf_transverse_kick: false
 
+random:
+  # Random-number policy (v0.13): single configured seed for ALL stochastic
+  # sources.  Beam generation: seed → generate_parray (x/y/tau), then
+  # seed+1 → px/py/δ_p (independent draws, avoids the x–px correlation trap).
+  seed: 42
+
 lattice:
   # THE ONLY GEOMETRY DEFINITION (single source of truth).
   # z_start/length in [m]; each element carries its own physical parameters.

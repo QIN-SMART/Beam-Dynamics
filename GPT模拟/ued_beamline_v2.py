@@ -32,6 +32,10 @@ _REPO = os.path.dirname(_THIS_DIR)
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 from shared.params import load_config, config_sha, _lattice_elements  # noqa: E402
+from shared.constants import MEC2_KEV, E_SI, M_E_SI, C_SI  # noqa: E402
+from shared.beam_physics import BeamReference  # noqa: E402
+from shared.ocelot_coords import (add_p_oc, add_px, add_py,  # noqa: E402
+                                  set_px, set_py, set_p_oc)
 from shared.output_schema import write_results, make_probe  # noqa: E402
 
 print("加载 OCELOT …", flush=True)
@@ -82,21 +86,17 @@ dz_track    = out["step_size_m"]
 #  relativistic (from config energies only)
 # ═══════════════════════════════════════════════════════════
 
-mec2   = 511.0  # keV — fundamental constant, not a free parameter
-e_SI   = 1.602176634e-19
-m_e_SI = 9.10938356e-31
-c_SI   = 2.99792458e8
-
-gamma      = 1.0 + E_keV / mec2
-beta       = np.sqrt(1.0 - 1.0 / gamma**2)
-beta_gamma = beta * gamma
-p_SI       = gamma * m_e_SI * beta * c_SI
+_br = BeamReference.from_energy_keV(E_keV)   # single γ/β/p0 source (v0.13)
+gamma      = _br.gamma
+beta       = _br.beta
+beta_gamma = _br.beta_gamma
+p_SI       = _br.p0
 
 epsilon_geom = epsilon_n / beta_gamma
 sigma_xp     = epsilon_geom / spot_rms
 sigma_yp     = epsilon_geom / spot_rms
 
-E_total_eV = gamma * mec2 * 1e3
+E_total_eV = gamma * MEC2_KEV * 1e3
 
 # ═══════════════════════════════════════════════════════════
 #  generic lattice builder — lattice.elements is the ONLY geometry source
@@ -121,7 +121,7 @@ def build_lattice_from_shared(cfg, active_types):
             continue                       # cathode / sample markers
         if etype == "solenoid" and "solenoid" in active_types:
             B = e["parameters"]["B_field_T"]
-            k = e_SI * B / (2.0 * p_SI)
+            k = E_SI * B / (2.0 * p_SI)
             elems.append(Solenoid(l=L, k=k, eid=e["name"]))
         elif etype == "rf_cavity" and "rf_cavity" in active_types:
             elems.append(Drift(l=L, eid=e["name"] + "_BODY"))
@@ -151,16 +151,16 @@ def apply_rf_kick(parray, rf_elem, rf_transverse=False):
     pv = rf_elem["parameters"]
     V = pv["voltage_kV"] * 1e3
     phi = pv["phase_rad"]
-    k = 2.0 * np.pi * pv["frequency_GHz"] * 1e9 / c_SI
+    k = 2.0 * np.pi * pv["frequency_GHz"] * 1e9 / C_SI
     tau = parray.tau()
     z_phys = -beta * tau                    # physical z = β·c·t = β·tau  [m]
     d_delta = (V / (beta**2 * E_total_eV)) * np.sin(phi + k * z_phys)
-    parray.rparticles[5, :] += beta * d_delta
+    add_p_oc(parray, beta * d_delta)               # p_oc += β0·δ_p (adapter boundary)
     if rf_transverse:
-        K_trans = -e_SI * k * V / (2.0 * gamma * beta * m_e_SI * c_SI**2)
+        K_trans = -E_SI * k * V / (2.0 * gamma * beta * M_E_SI * C_SI**2)
         x = parray.x(); y = parray.y()
-        parray.rparticles[1, :] += K_trans * x
-        parray.rparticles[3, :] += K_trans * y
+        add_px(parray, K_trans * x)
+        add_py(parray, K_trans * y)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -178,6 +178,9 @@ def emit(x, xp):
 def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     """Track the beam through the given lattice, kicking every rf instance."""
     nparticles = nparticles or N_part
+    # Random policy (v0.13): configured seed → x/y/tau; seed+1 → px/py/δ_p.
+    rng_seed = int(cfg["random"]["seed"])
+    np.random.seed(rng_seed)
     p = generate_parray(
         sigma_x=spot_rms, sigma_y=spot_rms,
         sigma_tau=sig_z0 / beta,   # OCELOT tau = c·t [m]; σ_tau = σ_z/β
@@ -185,12 +188,12 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
         charge=Q_C,
         nparticles=nparticles,
     )
-    np.random.seed(42)
+    np.random.seed(rng_seed + 1)
     N = p.rparticles.shape[1]
-    p.rparticles[1, :] = np.random.normal(0.0, sigma_xp, N)
-    p.rparticles[3, :] = np.random.normal(0.0, sigma_yp, N)
+    set_px(p, np.random.normal(0.0, sigma_xp, N))
+    set_py(p, np.random.normal(0.0, sigma_yp, N))
     # OCELOT p() = ΔE/(c·p0), NOT Δp/p0 → p_oc = β0·δ_p  (R56 audit: B)
-    p.rparticles[5, :] = beta * np.random.normal(0.0, sigma_delta, N)
+    set_p_oc(p, beta * np.random.normal(0.0, sigma_delta, N))
 
     sc_proc = SpaceCharge(step=sc.get("step", 1)) if (sc_enabled and _HAS_SC) else None
 
@@ -238,7 +241,7 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
                     "z_mm": z_p * 1e3,
                     "sigma_x_um": np.std(xa) * 1e6,
                     "sigma_y_um": np.std(ya) * 1e6,
-                    "sigma_t_fs": np.std(p.tau()) / c_SI * 1e15,
+                    "sigma_t_fs": np.std(p.tau()) / C_SI * 1e15,
                     "eps_x_mm_mrad": emit(xa, xpa) * 1e6,
                     "eps_y_mm_mrad": emit(ya, ypa) * 1e6,
                     "sigma_delta_e3": np.std(p.p()) / beta * 1e3,   # δ_p = p_oc/β0
@@ -327,7 +330,7 @@ def main():
         rf0 = rf_elems[0]["parameters"]
         V0 = rf0["voltage_kV"] * 1e3
         phi0 = rf0["phase_rad"]
-        k0 = 2.0 * np.pi * rf0["frequency_GHz"] * 1e9 / c_SI
+        k0 = 2.0 * np.pi * rf0["frequency_GHz"] * 1e9 / C_SI
         test_tau = np.linspace(-2 * sig_z0, 2 * sig_z0, 1000)   # tau = c·t [m]
         z_phys = -beta * test_tau
         d_delta = (V0 / (beta**2 * E_total_eV)) * np.sin(phi0 + k0 * z_phys)
@@ -371,7 +374,7 @@ def main():
                 z_mm=d["z_mm"],
                 sigma_x_um=d["sigma_x_um"],
                 sigma_y_um=d["sigma_y_um"],
-                sigma_z_um=d["sigma_t_fs"] * c_SI * beta * 1e-9,
+                sigma_z_um=d["sigma_t_fs"] * C_SI * beta * 1e-9,
                 sigma_delta_e3=d["sigma_delta_e3"],
                 eps_nx_mm_mrad=d["eps_x_mm_mrad"] * beta_gamma,
                 eps_ny_mm_mrad=d["eps_y_mm_mrad"] * beta_gamma,

@@ -15,12 +15,12 @@ No physics is re-implemented here beyond these standard validation references.
 import numpy as np
 
 from shared.constants import C_SI, M_E_SI, E_SI  # single source (v0.12)
+from shared.beam_physics import BeamReference  # single γ/β/p0 (v0.13)
 
 
 def gamma_beta_p(energy_keV):
-    gamma = 1.0 + energy_keV / 511.0
-    beta = np.sqrt(1.0 - 1.0 / gamma**2)
-    return gamma, beta, gamma * M_E_SI * beta * C_SI
+    br = BeamReference.from_energy_keV(energy_keV)
+    return br.gamma, br.beta, br.p0
 
 
 def drift_sigma(z_arr, sigma0, sxp0):

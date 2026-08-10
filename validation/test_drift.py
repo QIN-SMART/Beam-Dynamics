@@ -44,7 +44,7 @@ def main():
     z_ref = ag.z_mm * 1e-3
     # longitudinal analytic reference (R56_z = L/γ², δ_p = Δp/p0):
     #   σ_z(z) = √(σ_z0² + (z·σ_δ_p/γ²)²)
-    gamma2 = (1.0 + cfg["beam"]["energy_keV"] / 511.0)**2
+    gamma2 = d["gamma"]**2
     sigma_z0 = ib["bunch_length_um"] * 1e-6
     sigma_delta_p = ib["sigma_delta"]
     sz_analytic = np.sqrt(sigma_z0**2

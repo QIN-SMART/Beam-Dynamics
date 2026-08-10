@@ -94,12 +94,13 @@ def main():
     pc = generate_parray(sigma_x=1e-6, sigma_y=1e-6, sigma_tau=1e-6,
                          energy=(100 + 511.0) * 1e-6, charge=1e-15,
                          nparticles=N_c)
-    rng = np.random.default_rng(7)
+    rng = np.random.default_rng(int(cfg['random']['seed']) + 2)  # config seed + offset
     zc = rng.normal(0.0, 300e-6, N_c)                 # controlled z_phys [m]
     dp_in = rng.normal(0.0, cfg["initial_distribution"]["sigma_delta"], N_c)
     pc.rparticles[:] = 0.0
-    pc.rparticles[4, :] = -zc / d["beta"]             # tau = -z_phys/β0
-    pc.rparticles[5, :] = d["beta"] * dp_in           # p_oc = β0·δ_p
+    from shared.ocelot_coords import set_tau, set_p_oc
+    set_tau(pc, -zc / d["beta"])              # tau = -z_phys/β0
+    set_p_oc(pc, d["beta"] * dp_in)          # p_oc = β0·δ_p
     rf_elem = [e for e in cfg["lattice"]["elements"]
                if e["type"] == "rf_cavity"][0]
     sw_off = dict(P.switches.as_dict())
@@ -107,7 +108,7 @@ def main():
     dp_out = pc.p() / d["beta"]                       # δ_p after
     d_delta_meas = dp_out - dp_in
     k_rf = 2.0 * np.pi * rf_elem["parameters"]["frequency_GHz"] * 1e9 / C_SI
-    E_tot = (1.0 + cfg["beam"]["energy_keV"] / 511.0) * 511.0 * 1e3
+    E_tot = d["gamma"] * 511.0 * 1e3
     d_delta_ref = (rf_elem["parameters"]["voltage_kV"] * 1e3
                    / (d["beta"]**2 * E_tot)) * np.sin(
         rf_elem["parameters"]["phase_rad"] + k_rf * zc)

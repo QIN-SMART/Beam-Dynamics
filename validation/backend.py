@@ -27,7 +27,9 @@ for p in (_REPO, _THIS_DIR, os.path.join(_REPO, "AG")):
         sys.path.insert(0, p)
 
 from shared.params import load_config, parse, derived, _lattice_elements, config_sha  # noqa: E402
-from shared.constants import C_SI, M_E_SI, E_SI  # noqa: E402  (single source)
+from shared.constants import C_SI, M_E_SI, E_SI, MEC2_KEV  # noqa: E402
+from shared.ocelot_coords import (add_p_oc, add_px, add_py,  # noqa: E402
+                                  set_px, set_py, set_p_oc)
 from beam_result import BeamResult  # noqa: E402
 
 
@@ -58,6 +60,7 @@ def _provenance(cfg):
         "lattice_hash": lattice_hash,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "python": ".".join(__import__("sys").version.split()[:1]),
+        "random_seed": int(cfg.get("random", {}).get("seed", 0)),
         "coordinate_convention": "delta_p = dp/p0; OCELOT native p_oc = dE/(c*p0)",
     }
 
@@ -289,16 +292,16 @@ def _ocelot_rf_kick(p, rf_elem, cfg, d, sw):
     """
     pv = rf_elem["parameters"]
     H_rf, K_trans, k_rf, E_rf = _rf_constants(cfg, d, rf_elem)
-    E_tot = (1.0 + cfg["beam"]["energy_keV"] / 511.0) * 511.0 * 1e3
+    E_tot = d["gamma"] * MEC2_KEV * 1e3          # eV (from derived, single source)
     tau = p.tau()
     z_phys = -d["beta"] * tau
     d_delta_p = (pv["voltage_kV"] * 1e3 / (d["beta"]**2 * E_tot)) \
         * np.sin(pv["phase_rad"] + k_rf * z_phys)
-    p.rparticles[5, :] += d["beta"] * d_delta_p
+    add_p_oc(p, d["beta"] * d_delta_p)             # p_oc += β0·δ_p (adapter boundary)
     if sw["rf_transverse_kick"]:
         x = p.x(); y = p.y()
-        p.rparticles[1, :] += K_trans * x
-        p.rparticles[3, :] += K_trans * y
+        add_px(p, K_trans * x)
+        add_py(p, K_trans * y)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -354,10 +357,12 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
     total_length = sum(e.l for e in elems)
 
     # ── beam ──
-    # NOTE: generate_parray uses the unseeded global np.random (pre-existing);
-    # a seed here would collide with the seed(42) below (identical draws for
-    # x and px → spurious x-x' correlation).  Reproducibility of the first
-    # beam per process is a pre-existing limitation.
+    # Random policy (v0.13): configured seed for the ENTIRE beam, so the same
+    # seed reproduces the same beam bit-for-bit.  seed → generate_parray
+    # (x/y/tau), seed+1 → px/py/δ_p (independent draws; avoids the x–px
+    # correlation trap of reusing the identical sequence).
+    rng_seed = int(cfg["random"]["seed"])
+    np.random.seed(rng_seed)
     p = generate_parray(
         sigma_x=ib["spot_rms_um"] * 1e-6, sigma_y=ib["spot_rms_um"] * 1e-6,
         sigma_tau=ib["bunch_length_um"] * 1e-6 / d["beta"],   # τ=c·t [m]
@@ -365,14 +370,14 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
         charge=P.beam.Q_C,
         nparticles=n_particles,
     )
-    np.random.seed(42)
+    np.random.seed(rng_seed + 1)
     N = p.rparticles.shape[1]
-    p.rparticles[1, :] = np.random.normal(0.0, d["sigma_xp"], N)
-    p.rparticles[3, :] = np.random.normal(0.0, d["sigma_yp"], N)
+    set_px(p, np.random.normal(0.0, d["sigma_xp"], N))
+    set_py(p, np.random.normal(0.0, d["sigma_yp"], N))
     # OCELOT p() = ΔE/(c·p0), NOT Δp/p0.  Convert the shared momentum
     # deviation to the native coordinate:  p_oc = β0·δ_p  (R56 audit: B).
     delta_p = np.random.normal(0.0, ib["sigma_delta"], N)
-    p.rparticles[5, :] = d["beta"] * delta_p
+    set_p_oc(p, d["beta"] * delta_p)
 
     sc_proc = None
     if sc_enabled:

@@ -20,6 +20,7 @@ import yaml
 from shared.constants import (  # noqa: E402  (single source of constants)
     C_SI, M_E_SI, E_SI, EPSILON_0, MEC2_KEV,
 )
+from shared.beam_physics import BeamReference  # noqa: E402  (single γ/β/p0 source)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.join(_THIS_DIR, "beamline_config.yaml")
@@ -47,16 +48,19 @@ def config_sha(cfg: dict) -> str:
 # ── Derived (SI) quantities from the shared config ────────────────────────
 
 def derived(cfg: dict) -> dict:
-    """Relativistic kinematics + beam-derived quantities, all SI."""
+    """Relativistic kinematics + beam-derived quantities, all SI.
+
+    γ/β/p0/velocity come from the single source shared/beam_physics.
+    """
     b  = cfg["beam"]
     ib = cfg["initial_distribution"]
 
-    E_keV    = b["energy_keV"]
-    gamma    = 1.0 + E_keV / MEC2_KEV
-    beta     = (1.0 - 1.0 / gamma**2) ** 0.5
-    beta_gamma = beta * gamma
-    p_SI     = gamma * M_E_SI * beta * C_SI
-    v_e      = beta * C_SI
+    E_keV = b["energy_keV"]
+    br = BeamReference.from_energy_keV(E_keV)
+    gamma, beta = br.gamma, br.beta
+    beta_gamma = br.beta_gamma
+    p_SI = br.p0
+    v_e = br.velocity
 
     eps_n     = ib["epsilon_n_mm_mrad"] * 1e-6       # [m·rad]
     spot      = ib["spot_rms_um"] * 1e-6             # [m]

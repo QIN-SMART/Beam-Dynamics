@@ -45,9 +45,10 @@ class BeamResult:
         self.meta = meta or {}
 
     def _beta(self):
-        # beta from energy: gamma = 1 + E[keV]/511, beta = sqrt(1-1/gamma^2)
-        gamma = 1.0 + self.energy_keV / 511.0
-        return np.sqrt(np.maximum(1.0 - 1.0 / gamma**2, 0.0))
+        # single-source relativistic reference (v0.13)
+        from shared.beam_physics import BeamReference
+        return np.asarray([BeamReference.from_energy_keV(e).beta
+                           for e in self.energy_keV])
 
     def _time_from_sigma_z(self):
         beta = np.mean(self._beta())

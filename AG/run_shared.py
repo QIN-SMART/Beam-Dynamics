@@ -35,9 +35,8 @@ from beam_dynamics_6d import (make_beam_100keV, ExtFieldRegion,
 from external_forces import build_all_external, build_external_force_func
 from beamline_sim import compute_emittance
 
-C_SI = 2.99792458e8
-M_E_SI = 9.10938356e-31
-E_SI = 1.602176634e-19
+from shared.constants import C_SI, M_E_SI, E_SI, MEC2_KEV  # noqa: E402
+from shared.beam_physics import BeamReference  # noqa: E402
 
 # Round-beam solenoid coupling correction (see validation/CHECKPOINTS.md):
 # AG core injects reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, ...) which the
@@ -52,10 +51,9 @@ def rf_thin_lens_H(cfg, rf_elem):
     p = rf_elem["parameters"]
     k_rf = 2.0 * np.pi * p["frequency_GHz"] * 1e9 / C_SI
     V = p["voltage_kV"] * 1e3
-    gamma = 1.0 + cfg["beam"]["energy_keV"] / 511.0
-    beta = np.sqrt(1.0 - 1.0 / gamma**2)
+    br = BeamReference.from_energy_keV(cfg["beam"]["energy_keV"])
     return E_SI * V * k_rf * np.cos(p["phase_rad"]) / (
-        beta**2 * gamma * M_E_SI * C_SI**2)
+        br.beta**2 * br.gamma * M_E_SI * C_SI**2)
 
 
 def build_regions(cfg):
