@@ -165,6 +165,25 @@ GPT_REVIEW_CORE = [
     "validation/CHECKPOINTS.md",
 ]
 
+# A-level curated files (flattened names) archived per run — the "most
+# worth sending to GPT" set, kept lean to avoid duplication.
+GPT_REVIEW_A_LEVEL = [
+    "core_validation_backend.py",
+    "core_GPT模拟_ued_beamline_v2.py",
+    "core_shared_beam_physics.py",
+    "core_shared_ocelot_coords.py",
+    "core_validation_test_rf.py",
+    "core_validation_test_full_beamline.py",
+    "core_validation_test_gpt_route_equivalence.py",
+    "latest_report.txt",
+    "latest_review.png",
+    "latest_changelog.txt",
+    "latest_manifest.txt",
+    "sc_ocelot_source_audit.txt",
+    "sc_ag_model_audit.txt",
+    "sc_diagnostics.png",
+]
+
 # Auto-picked latest artifacts (one per category, by mtime).
 GPT_REVIEW_LATEST = [
     ("validation/reports/*.md", "latest_report.txt"),
@@ -255,23 +274,24 @@ def sync_gpt_review(sync_dir):
     with open(os.path.join(dest, "REVIEW_LIST.txt"), "w") as f:
         f.write("\n".join(readme) + "\n")
 
-    # ── version snapshot: keep a full copy per run (never overwritten) ──
+    # ── version snapshot: A-level files only (no duplicates) ──
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     vdir = os.path.join(dest, "versions", ts)
     os.makedirs(vdir, exist_ok=True)
+    a_copied = []
     for name in os.listdir(dest):
-        if name == "versions":
+        if name == "versions" or not os.path.isfile(os.path.join(dest, name)):
             continue
-        src_f = os.path.join(dest, name)
-        if os.path.isfile(src_f):
-            shutil.copy2(src_f, os.path.join(vdir, name))
+        if name in GPT_REVIEW_A_LEVEL:
+            shutil.copy2(os.path.join(dest, name), os.path.join(vdir, name))
+            a_copied.append(name)
     with open(os.path.join(vdir, "info.txt"), "w") as f:
-        f.write(f"Snapshot of gpt_review/ at {datetime.now():%Y-%m-%d %H:%M:%S}\n"
-                f"Files: {len(copied)}\n"
-                f"This is a full copy; gpt_review/ root always holds the latest.\n")
-    # keep versions listing small: name only, content in <ts>/subfolder
+        f.write(f"A-level snapshot at {datetime.now():%Y-%m-%d %H:%M:%S}\n"
+                f"A-level files: {len(a_copied)}\n"
+                f"This is the curated 'most worth sending to GPT' set; "
+                f"gpt_review/ root holds the full latest package.\n")
     with open(os.path.join(dest, "VERSIONS.txt"), "a") as f:
-        f.write(f"{ts}  ({len(copied)} files)\n")
+        f.write(f"{ts}  ({len(a_copied)} A-level files)\n")
 
     print(f"GPT-review package -> {dest}")
     print(f"  files copied: {len(copied)}  (list: gpt_review/REVIEW_LIST.txt)")
