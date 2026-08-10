@@ -3,7 +3,7 @@
 Sync modified project files to iCloud Drive for ChatGPT on the phone.
 
 DESIGN (phone-friendly, one file at a time):
-  - DEFAULT = BUNDLE ONLY: one merged markdown `latest_bundle.md` with the
+  - DEFAULT = BUNDLE ONLY: one merged markdown `latest_bundle.txt` with the
     full content of every file changed since the last run — a single file to
     open on the phone and feed to ChatGPT.
   - Regenerable data (e.g. *_results.json) is never synced — it carries no
@@ -24,7 +24,7 @@ Usage
                                                 # report/figure/changelog) to
                                                 # UED_Sync/gpt_review/
 
-iPhone: Files app → iCloud Drive → UED_Sync/ → latest_bundle.md
+iPhone: Files app → iCloud Drive → UED_Sync/ → latest_bundle.txt
 """
 
 import argparse
@@ -38,10 +38,15 @@ from datetime import datetime
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICLOUD_ROOT = os.path.expanduser(
     "~/Library/Mobile Documents/com~apple~CloudDocs")
+def _txt(name):
+    """iCloud-side files use .txt (content unchanged) — local .md untouched."""
+    return name[:-3] + ".txt" if name.lower().endswith(".md") else name
+
+
 SYNC_DIR_NAME = "UED_Sync"
 MANIFEST_NAME = "manifest.json"
 SUMMARY_NAME = "sync_summary.md"
-BUNDLE_NAME = "latest_bundle.md"
+BUNDLE_NAME = "latest_bundle.txt"
 FILES_SUBDIR = "files"
 
 # Everything outside these is treated as live project content.
@@ -162,11 +167,16 @@ GPT_REVIEW_CORE = [
 
 # Auto-picked latest artifacts (one per category, by mtime).
 GPT_REVIEW_LATEST = [
-    ("validation/reports/*.md", "latest_report.md"),
+    ("validation/reports/*.md", "latest_report.txt"),
     ("validation/reports/review_summary*.png", "latest_review.png"),
-    ("CHANGELOG_*.md", "latest_changelog.md"),
-    ("validation/baselines/*/BASELINE_MANIFEST.md", "latest_manifest.md"),
+    ("CHANGELOG_*.md", "latest_changelog.txt"),
+    ("validation/baselines/*/BASELINE_MANIFEST.md", "latest_manifest.txt"),
 ]
+
+
+def glob_md(directory):
+    import glob
+    return glob.glob(os.path.join(directory, "*.md"))
 
 
 def _newest(glob_pattern):
@@ -182,13 +192,16 @@ def sync_gpt_review(sync_dir):
     """Copy the A-level GPT-review package into iCloud/UED_Sync/gpt_review/."""
     dest = os.path.join(sync_dir, "gpt_review")
     os.makedirs(dest, exist_ok=True)
+    # remove stale .md leftovers (iCloud side is .txt only)
+    for old in glob_md(dest):
+        os.remove(old)
     copied = []          # (flattened_name, original_relpath, why)
 
     for rel in GPT_REVIEW_CORE:
         src = os.path.join(PROJECT_ROOT, rel)
         if not os.path.isfile(src):
             continue
-        flat = "core_" + rel.replace("/", "_")
+        flat = _txt("core_" + rel.replace("/", "_"))
         shutil.copy2(src, os.path.join(dest, flat))
         copied.append((flat, rel, "core"))
 
@@ -197,8 +210,8 @@ def sync_gpt_review(sync_dir):
         if latest is None:
             continue
         rel = os.path.relpath(latest, PROJECT_ROOT)
-        shutil.copy2(latest, os.path.join(dest, out_name))
-        copied.append((out_name, rel, "latest"))
+        shutil.copy2(latest, os.path.join(dest, _txt(out_name)))
+        copied.append((_txt(out_name), rel, "latest"))
 
     # A/B/C level map (matches the project review spec)
     readme = [
@@ -223,13 +236,13 @@ def sync_gpt_review(sync_dir):
         "",
         "- core_shared_beamline_config.yaml : when suspecting parameter source.",
         "- core_shared_params.py / AG_run_shared.py / core_validation_config_check.py.",
-        "- latest_report.md / latest_changelog.md.",
+        "- latest_report.txt / latest_changelog.txt.",
         "",
         "## C-level (archive only)",
         "",
-        "- core_AGENTS.md, core_validation_CHECKPOINTS.md : provenance/history,",
+        "- core_AGENTS.txt, core_validation_CHECKPOINTS.txt : provenance/history,",
         "  not direct evidence.",
-        "- latest_manifest.md (baseline snapshot).",
+        "- latest_manifest.txt (baseline snapshot).",
         "",
         "## Copied in this run",
         "",
@@ -253,7 +266,7 @@ def main():
     ap.add_argument("--images", action="store_true",
                     help="include images/binaries in the individual copies")
     ap.add_argument("--no-bundle", action="store_true",
-                    help="skip the merged latest_bundle.md")
+                    help="skip the merged latest_bundle.txt")
     ap.add_argument("--gpt-review", action="store_true",
                     help="upload the A-level GPT-review package to gpt_review/")
     ap.add_argument("--max-mb", type=float, default=MAX_FILE_MB)
@@ -306,7 +319,7 @@ def main():
     if args.files:
         for rel in sorted(changed_paths):
             src = os.path.join(PROJECT_ROOT, rel)
-            dst = os.path.join(sync_dir, FILES_SUBDIR, rel)
+            dst = os.path.join(sync_dir, FILES_SUBDIR, _txt(rel))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
         for rel in removed:
@@ -345,7 +358,7 @@ def main():
     if not args.no_bundle:
         print(f"bundle  -> {os.path.join(sync_dir, BUNDLE_NAME)}"
               + ("" if changed_paths else " (no changes, kept previous)"))
-    print("iPhone: Files app → iCloud Drive → UED_Sync/ → latest_bundle.md")
+    print("iPhone: Files app → iCloud Drive → UED_Sync/ → latest_bundle.txt")
     return 0
 
 
