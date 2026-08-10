@@ -383,7 +383,10 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
     if sc_enabled:
         try:
             from ocelot.cpbd.sc import SpaceCharge
-            sc_proc = SpaceCharge(step=1)
+            sc_cfg = cfg["space_charge"]
+            # v0.14 P1 fix: mesh/step must come from shared config, not defaults
+            sc_proc = SpaceCharge(step=sc_cfg.get("step", 1),
+                                  nmesh_xyz=list(sc_cfg.get("mesh", [63, 63, 63])))
         except ImportError:
             pass
 
@@ -405,6 +408,11 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
     sz = np.zeros(n_steps); enx = np.zeros(n_steps); eny = np.zeros(n_steps)
     sd = np.zeros(n_steps)
     rf_done = set()
+    # v0.14 P0 fix: OCELOT invokes PhysProcs (SpaceCharge) inside its track()
+    # loop via the process counter; tracking_step() applies transfer maps only.
+    # Replicate the counter mechanism here (counter=step initially, apply every
+    # step×dz AFTER the map, like track()).  With SC off sc_proc is None and
+    # the loop is identical to the previous tracking_step behaviour.
     for i in range(n_steps):
         z_before = navi.z0
         for rf_elem in rf_elems:
@@ -414,6 +422,12 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
                 rf_done.add(z_rf)
                 rf_kicks_applied += 1
         tracking_step(lat, p, dz, navi)
+        if sc_proc is not None:
+            sc_proc.counter -= 1
+            if sc_proc.counter <= 0:
+                sc_proc.z0 = navi.z0
+                sc_proc.apply(p, sc_proc.step * dz)
+                sc_proc.counter = sc_proc.step
         z = navi.z0
         x = p.x(); xp = p.px(); y = p.y(); yp = p.py()
         z_arr[i] = z

@@ -195,7 +195,9 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     # OCELOT p() = ΔE/(c·p0), NOT Δp/p0 → p_oc = β0·δ_p  (R56 audit: B)
     set_p_oc(p, beta * np.random.normal(0.0, sigma_delta, N))
 
-    sc_proc = SpaceCharge(step=sc.get("step", 1)) if (sc_enabled and _HAS_SC) else None
+    sc_proc = (SpaceCharge(step=sc.get("step", 1),
+                           nmesh_xyz=list(sc.get("mesh", [63, 63, 63])))
+               if (sc_enabled and _HAS_SC) else None)
 
     navi = Navigator(lat, unit_step=dz_track)
     if sc_proc is not None and len(lat.sequence) >= 2:
@@ -211,6 +213,10 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     rf_done = set()
     rf_transverse = bool(switches.get("rf_transverse_kick", False))
 
+    # v0.14 P0 fix: OCELOT invokes PhysProcs (SpaceCharge) inside its track()
+    # loop via the process counter; tracking_step() applies transfer maps only.
+    # Replicate the counter mechanism here (apply every step×dz AFTER the map).
+    # With SC off sc_proc is None → identical to the previous behaviour.
     for step_i in range(n_steps):
         z_before = navi.z0
 
@@ -222,6 +228,12 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
                 rf_done.add(z_rf)
 
         tracking_step(lat, p, dz_track, navi)
+        if sc_proc is not None:
+            sc_proc.counter -= 1
+            if sc_proc.counter <= 0:
+                sc_proc.z0 = navi.z0
+                sc_proc.apply(p, sc_proc.step * dz_track)
+                sc_proc.counter = sc_proc.step
         z = navi.z0
 
         # full z-history for the unified output (shared schema)
