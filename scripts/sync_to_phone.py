@@ -255,8 +255,27 @@ def sync_gpt_review(sync_dir):
     with open(os.path.join(dest, "REVIEW_LIST.txt"), "w") as f:
         f.write("\n".join(readme) + "\n")
 
+    # ── version snapshot: keep a full copy per run (never overwritten) ──
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    vdir = os.path.join(dest, "versions", ts)
+    os.makedirs(vdir, exist_ok=True)
+    for name in os.listdir(dest):
+        if name == "versions":
+            continue
+        src_f = os.path.join(dest, name)
+        if os.path.isfile(src_f):
+            shutil.copy2(src_f, os.path.join(vdir, name))
+    with open(os.path.join(vdir, "info.txt"), "w") as f:
+        f.write(f"Snapshot of gpt_review/ at {datetime.now():%Y-%m-%d %H:%M:%S}\n"
+                f"Files: {len(copied)}\n"
+                f"This is a full copy; gpt_review/ root always holds the latest.\n")
+    # keep versions listing small: name only, content in <ts>/subfolder
+    with open(os.path.join(dest, "VERSIONS.txt"), "a") as f:
+        f.write(f"{ts}  ({len(copied)} files)\n")
+
     print(f"GPT-review package -> {dest}")
     print(f"  files copied: {len(copied)}  (list: gpt_review/REVIEW_LIST.txt)")
+    print(f"  snapshot     -> {vdir}")
     return dest
 
 
