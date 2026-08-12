@@ -110,6 +110,10 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 
 ## 13. no-SC regression baseline（必须保持）
 - 测试命令：`/opt/anaconda3/bin/python3 validation/run_all.py`（6 项）+ `validation/test_r56_convention.py`
+- **canonical no-SC regression hash（v0.14.1 起正式定义）**：
+  `SHA1( contiguous bytes of [z_mm, sigma_x_um, sigma_y_um, sigma_z_um, eps_nx_mm_mrad, eps_ny_mm_mrad, sigma_delta_e3] )[:12]`
+  （run_ocelot SC OFF，config seed 42，N=5e4，dz=0.001，full beamline）→ **`7790fd9c2a2b`**
+  旧 `e041d6ae9fb7a0d2` 不再追踪：其输入对象/算法未记录，无法严格复现
 - 6 项全 PASS：config_schema（Level-1 一致性）、drift（σ_x 0.2%、σ_δ_p 语义 0.022%）、solenoid（0.40%）、rf（σ_δ_p <1%、kick 语义 6e-13）、full_beamline（七项量化：σ_x 0.60%、σ_y 0.36%、σ_δ_p 0.46%、ε_nx 0.53%、ε_ny 0.26%、σ_z 0.63%、σ_t 0.63%、腰 Δz=0.4mm）、gpt_route（样品面 <1%）
 - full_beamline 样品面参考值：AG σ_x=1984.191µm/σ_z=477.001µm（位级固定）；OCELOT σ_x=1996.205/σ_z=474.022（同 seed 位级，hash e041d6ae9fb7a0d2）
 - r56_convention：raw slope=−1.163624、闭合残差 2.11e-3、naive 0.826 —— 冻结不变

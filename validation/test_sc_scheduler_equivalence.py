@@ -251,22 +251,25 @@ SCENARIOS = [
     # s_stop = totalLen (otherwise s_stop = start of the LAST element,
     # i.e. the SC interval misses the final element — see T7).
     dict(name="T1_baseline_fullcov_step1",
-         elems=[("drift", 0.500), ("drift", 0.000)], step=1, span=None),
+         elems=[("drift", 0.500), ("drift", 0.000)], step=1, span=None,
+         expect_equivalent=True),
     dict(name="T2_fullcov_step5",
-         elems=[("drift", 0.500), ("drift", 0.000)], step=5, span=None),
+         elems=[("drift", 0.500), ("drift", 0.000)], step=5, span=None,
+         expect_equivalent=True),
     dict(name="T3_multi_elem_drift_solenoid",
          elems=[("drift", 0.100), ("solenoid", 0.060), ("drift", 0.100),
                 ("drift", 0.000)],
-         step=1, span=None),
+         step=1, span=None, expect_equivalent=True),
     dict(name="T4_elem_boundary_not_unit_multiple",
          elems=[("drift", 0.050), ("solenoid", 0.022), ("drift", 0.033),
                 ("drift", 0.000)],
-         step=1, span=None),
+         step=1, span=None, expect_equivalent=True),
     dict(name="T5_total_len_not_unit_multiple",
-         elems=[("drift", 0.453), ("drift", 0.050)], step=1, span=None),
+         elems=[("drift", 0.453), ("drift", 0.050)], step=1, span=None,
+         expect_equivalent=False),
     dict(name="T6_partial_coverage_sc_mid_lattice",
          elems=[("drift", 0.100), ("drift", 0.200), ("drift", 0.100)],
-         step=1, span=(1, 2)),
+         step=1, span=(1, 2), expect_equivalent=False),
 ]
 
 
@@ -389,6 +392,14 @@ def production_acceptance(cfg, beta, beta_gamma):
     ok &= e_ok
 
     # ── F: SC OFF bitwise — production output array hash ──
+    # CANONICAL no-SC regression hash definition (v0.14.1):
+    #   SHA1( contiguous bytes of
+    #         [z_mm, sigma_x_um, sigma_y_um, sigma_z_um,
+    #          eps_nx_mm_mrad, eps_ny_mm_mrad, sigma_delta_e3] )[:12]
+    #   canonical value = 7790fd9c2a2b  (run_ocelot SC OFF, config seed 42,
+    #   N=5e4, dz=0.001, full beamline).
+    # The old e041d6ae9fb7a0d2 is NOT tracked: its input object/algorithm
+    # were never recorded, so it is not strictly reproducible.
     r_off = run_ocelot(cfg, "full")               # SC OFF (default, N=5e4)
     arr = np.array([r_off.z_mm, r_off.sigma_x_um, r_off.sigma_y_um,
                     r_off.sigma_z_um, r_off.eps_nx_mm_mrad,
@@ -406,6 +417,30 @@ def production_acceptance(cfg, beta, beta_gamma):
     return ok
 
 
+def check_expectation(name, L, expect_equivalent):
+    """Check a characterization scenario against its design expectation.
+
+    T1–T4 (expect_equivalent=True) must show event-level equivalence;
+    T5–T7 (expect_equivalent=False) must show a scheduling DIFFERENCE
+    (they exist to demonstrate the manual counter is not generally
+    equivalent).  A T5–T7 scenario that unexpectedly becomes equivalent is
+    reported as FAIL — it may mean the characterization was broken, not
+    that the manual clone got better.
+    """
+    events_equiv = bool(L["L1_count"] and L["L2_z"] and L["L3_zstep"])
+    if expect_equivalent:
+        ok = events_equiv
+        msg = ("PASS (equivalent as expected)" if ok else
+               "FAIL (expected equivalence, found a difference)")
+    else:
+        ok = not events_equiv
+        msg = ("PASS (difference as expected)" if ok else
+               "FAIL (expected difference, found equivalence — "
+               "scenario may be broken)")
+    print(f"  expectation[{name}]: {msg}")
+    return ok
+
+
 def main():
     cfg = load_config()
     d = derived(cfg)
@@ -418,6 +453,7 @@ def main():
     print("  (READ-ONLY characterization; no production module modified)")
 
     results = {}
+    exp_ok_all = True
     for sc in SCENARIOS:
         lat, total = build_lattice(sc["elems"])
         # identical initial beam for both paths (deterministic same seed)
@@ -427,7 +463,9 @@ def main():
         ev_m, _ = run_manual(lat, p_m, sc["step"], UNIT, sc["span"])
         L, diffs, dev = compare(sc["name"], ev_n, p_n, ev_m, p_m,
                                 beta, beta_gamma)
-        results[sc["name"]] = (L, diffs, total)
+        exp_ok = check_expectation(sc["name"], L, sc["expect_equivalent"])
+        exp_ok_all &= exp_ok
+        results[sc["name"]] = (L, diffs, total, exp_ok)
         # show the first few events side by side (for the record)
         print("  first events (idx, z, zstep, cb, ca):")
         for k in range(min(4, len(ev_n), len(ev_m))):
@@ -438,6 +476,8 @@ def main():
                   f"cb={e_m['counter_before']} ca={e_m['counter_after']}")
 
     # ── T7: production usage characterization ──
+    # (old anchor seq[0]..seq[-1] → SC ends at the last non-zero element
+    #  start; manual has no coverage bound at all → expected difference)
     print("\n--- T7_production_lattice_usage (seq[0]..seq[-1], dz=0.005) ---")
     lat, total = production_lattice()
     p_n = make_beam(cfg, N_TEST)
@@ -446,36 +486,39 @@ def main():
     ev_m, _ = run_manual(lat, p_m, 1, UNIT)
     L7, _, dev7 = compare("T7_production_lattice_usage", ev_n, p_n, ev_m, p_m,
                           beta, beta_gamma)
+    exp7 = check_expectation("T7_production_lattice_usage", L7,
+                             expect_equivalent=False)
+    exp_ok_all &= exp7
     from shared.params import _lattice_elements
     last_L = [e["length"] for e in _lattice_elements(cfg) if e["length"] > 0][-1]
     print(f"  note: s_stop = totalLen - L(last element) = "
           f"{total - last_L:.3f} m (last element = drift3, {last_L} m);")
     print(f"        native applies SC on [0, {total - last_L:.3f}) only; "
           f"manual keeps applying through the last drift to the sample.")
-    results["T7_production_lattice_usage"] = (L7, None, total)
+    results["T7_production_lattice_usage"] = (L7, None, total, exp7)
 
     # ── production-path acceptance (requirements A–F) ──
     prod_ok = production_acceptance(cfg, beta, beta_gamma)
 
     # ── summary ──
     print("\n" + "=" * 66)
-    print("  SUMMARY (L1 count / L2 z / L3 zstep / L4 bitwise)")
+    print("  SUMMARY (L1 count / L2 z / L3 zstep / L4 bitwise / expectation)")
     print("=" * 66)
-    for name, (L, diffs, total) in results.items():
+    for name, (L, diffs, total, exp_ok) in results.items():
         flags = "".join("P" if v else "F" for v in
                         (L["L1_count"], L["L2_z"], L["L3_zstep"], L["L4_bitwise"]))
-        verdict = ("STRICT" if flags == "PPPP"
-                   else "EVENTS OK" if flags.startswith("PPP")
+        verdict = ("EQUIV" if flags.startswith("PPP")
                    else "DIFFER")
-        print(f"  {name:<38s} L={flags}  total={total:.3f}m  {verdict}")
-    ok = all(L["L1_count"] and L["L2_z"] and L["L3_zstep"]
-             for L, _, _ in results.values())
-    print("\n  events-level equivalence: " + ("ALL SCENARIOS PASS" if ok else
-                                              "DIFFERENCES FOUND — see above"))
+        print(f"  {name:<38s} L={flags}  total={total:.3f}m  {verdict}  "
+              f"expect={'PASS' if exp_ok else 'FAIL'}")
+    print("\n  characterization expectations: "
+          + ("ALL PASS" if exp_ok_all else "FAILURES — see above"))
     print("  production-path acceptance: " + ("ALL PASS" if prod_ok else "FAIL"))
     print("  (T1–T4 equivalence; T5–T7 documented differences = manual clone")
     print("   retired; production now uses the native scheduler)")
-    return 0 if (ok and prod_ok) else 1
+    overall = exp_ok_all and prod_ok
+    print("  OVERALL: " + ("PASS" if overall else "FAIL"))
+    return 0 if overall else 1
 
 
 if __name__ == "__main__":

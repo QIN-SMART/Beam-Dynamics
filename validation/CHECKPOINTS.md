@@ -903,3 +903,12 @@
     以修改前/后数组位级对比（7790fd9c2a2b）作为 no-SC 保持的直接证据
   - v0.14 smoke/charge/convergence 数值标注为 manual-scheduler characterization
     （sc_audit_diagnostics.py 保留 manual 复刻），非 native production baseline
+
+## [v0.14.1-scheduler-hash-definition] 2026-08-12
+  canonical no-SC regression hash 正式定义（替代无法复现的 e041d6ae9fb7a0d2）:
+    SHA1( contiguous bytes of
+          [z_mm, sigma_x_um, sigma_y_um, sigma_z_um,
+           eps_nx_mm_mrad, eps_ny_mm_mrad, sigma_delta_e3] )[:12]
+    run_ocelot SC OFF, config seed 42, N=5e4, dz=0.001, full beamline
+    canonical value = 7790fd9c2a2b
+  实现与断言位于 validation/test_sc_scheduler_equivalence.py production_acceptance F.
