@@ -1,11 +1,11 @@
 # AI_HANDOFF — UED 项目当前状态唯一入口
 
 > 本文档是**当前状态入口**，不是完整历史记录。新 session 从本节开始建立认知；
-> 需要细节时再读 CHECKPOINTS.md、validation/reports/、validation/baselines/。
+> 需要细节时再读 validation/CHECKPOINTS.md、validation/reports/、validation/baselines/。
 > 生成时间：2026-08-10 · 本文档在 handoff 提交后需同步更新 HEAD 号。
 
 ## 0. 版本与位置
-- 分支：`main`；HEAD：`9e3b76f`（提交 handoff 后变为交接提交，请以 git log 为准）
+- 分支：`main`；HEAD：`ad43c69`（v0.14.1 task 1 提交；本文档提交后 HEAD 再变，以 git log 为准）
 - 最近可信标签：**`v0.13-preSC-maintainability`**（上一冻结基线，可回退点）
 - 其他标签：`v0.10-noSC-longitudinal-validated`（首次纵向冻结）、`v0.11-noSC-single-source-lattice`
 - config SHA：以 `git show HEAD:shared/beamline_config.yaml` 实际计算为准；历史上 v0.13 加 `random.seed` 键导致 SHA 变化过一次，**物理参数值从未改变**
@@ -14,10 +14,10 @@
 - 远程：GitHub `QIN-SMART/Beam-Dynamics`（public，token 已存钥匙串；push 若遇 HTTP 400/超时用 `git -c http.version=HTTP/1.1 -c http.proxy= push`）
 
 ## 1. 当前阶段 / 下一阶段
-- 当前阶段：**v0.14 SC 接入审计**——已完成审计、已定位并修复 P0 调用机制 bug、已跑 SC 诊断（smoke/charge/收敛）；SC 尚未进入正式 beamline 验证，**未声称 fully validated**
-- 下一阶段：**v0.14.1 — SC 正式 beamline 验证**（任务书见 §14，未开始，本 session 不做）
+- 当前阶段：**v0.14.1 SC 正式 beamline 验证准备**——task 1（scheduler equivalence）已完成：manual counter 经 characterization 证明非一般等价（T5–T7），production 已迁移到 OCELOT native `get_next_step()` 调度（SC ON），SC OFF 位级不变；SC 覆盖修正为 cathode→sample（0→0.777m，stop anchor 来自 lattice.elements 的 sample marker）；**SC 数值仍未经正式 beamline 验证，未声称 fully validated**
+- 下一阶段：**v0.14.1 task 2（AG charge semantics）→ task 3（SC runtime state contract）**；任务书见 §14
 - 长期目标：SC 验证完成后才有资格讨论 AG/OCELOT 的 SC 物理对比、GUI、优化
-- 禁止事项：修改 AG/OCELOT 核心、RF 方程、R56、lattice 几何、测试阈值、随机策略；未获批准不得实施 v0.14.1 或任何 SC 参数调整
+- 禁止事项：修改 AG/OCELOT 核心、RF 方程、R56、lattice 几何、测试阈值、随机策略；未获批准不得实施 v0.14.1 task 2/3 或任何 SC 参数调整
 
 ## 2. 项目架构
 ```
@@ -46,7 +46,7 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 - **项目标准变量：δ_p = Δp/p0**（动量偏差，无量纲）
 - **OCELOT 原生第六坐标：p_oc = ΔE/(c·p0)**（能量偏差归一化，**不是** Δp/p0；源码证据 `ocelot/cpbd/beam/generator.py:51`、`beam/particle.py:20`）
 - 两者换算（仅限 adapter 边界）：**p_oc = β0·δ_p**（进入 OCELOT 时），**δ_p = p_oc/β0**（离开时）
-- 允许出现 p_oc 的位置只有两处：`validation/backend.py`（run_ocelot 束生成、_ocelot_rf_kick）和 `GPT模拟/ued_beamline_v2.py`（apply_rf_kick）——除此之外任何代码出现 p_oc 都是违规
+- 允许出现 p_oc 的位置只有两处：`validation/backend.py`（run_ocelot 束生成、_ocelot_rf_kick）和 `GPT模拟/ued_beamline_v2.py`（apply_rf_kick）——除此之外任何代码出现 p_oc 都是违规（已登记例外：只读诊断脚本 `validation/sc_audit_diagnostics.py:62` 用 set_p_oc 镜像束生成，属 manual-scheduler characterization 保留代码）
 - tau = c·t [m]（OCELOT 原生，rparticles[4]）；共动空间坐标 z = −β0·c·Δt（头为正）；输出 σ_z = β0·σ_tau；σ_t = σ_z/(β0c)
 - **BeamResult.sigma_delta_e3 恒表示 δ_p**（OCELOT 输出已 ÷β0），禁止直接暴露 raw p_oc
 - 业务代码禁止直接写 `rparticles[5]` 等魔法索引，必须用 `shared/ocelot_coords.py` 的语义访问（I_X/I_PX/I_Y/I_PY/I_TAU/I_P、set_*/add_*）
@@ -86,8 +86,11 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 
 ## 10. SC v0.14 审计最终结论
 - **P0 根因（已修复）**：OCELOT 的 `tracking_step()` 只应用 transfer maps；PhysicsProcess（含 SpaceCharge）只在 `track()` 主循环的 `get_next_step()` 的 counter 机制中触发（`ocelot/cpbd/track.py:476-479`）。**历史所有代码（backend、主路由、benchmark）都用 tracking_step，因此 SC 从未真正运行**——这就是 v0.12 之前"SC ON/OFF 几乎重合"疑点的根因
-- **v0.14 修复（manual counter）**：在 `run_ocelot`、`ued_beamline_v2.run_beamline`、`sc_audit_diagnostics` 的循环内复刻 counter 逻辑：`sc.counter -= 1; if counter<=0: sc.z0=navi.z0; sc.apply(p, sc.step*dz); counter=sc.step`（map 应用之后触发，与 track() 顺序一致）；同时 SpaceCharge 构造改从 config 传 `step` 与 `nmesh_xyz`（原值相同，数值不变）
-- **⚠️ 尚未证明与 OCELOT native scheduler 严格等价**：manual counter 是对 track() 语义的近似复刻，未用 `navi.get_next_step()` 原生路径做位级对照。**禁止把 SC 描述为 fully validated**（v0.14.1 任务 1 就是做这个等价性证明）
+- **v0.14 修复（manual counter，已退役）**：曾在 `run_ocelot`、`ued_beamline_v2.run_beamline`、`sc_audit_diagnostics` 的循环内复刻 counter 逻辑（`sc.counter -= 1; if counter<=0: ...`）；SpaceCharge 构造从 config 传 `step` 与 `nmesh_xyz`
+- **v0.14.1 task 1（已落地）**：manual counter 经 characterization（`validation/test_sc_scheduler_equivalence.py`）证明非一般等价——T5 尾段丢失、T6 区间外触发、T7 生产 lattice 下覆盖 [0,0.422) vs [0,0.777)；**production 已迁移到 OCELOT native `get_next_step()` 调度**（== track() 核心，backend.py::run_ocelot 与 ued_beamline_v2.py::run_beamline 的 SC ON 分支）；SC OFF 保持原 tracking_step 循环，位级不变（数组 hash 7790fd9c2a2b）
+- **stop anchor**：SC ON 时 runtime sequence 保留 lattice.elements 中的 cathode/sample 零长 marker，PhysProc attach 为 cathode→sample（覆盖 [0, sample.z_start=0.777)，无硬编码）；SC OFF sequence 不变（带/不带 marker 已验证位级一致）
+- **metadata（SC ON，只读）**：sc_scheduler="ocelot_native"、sc_apply_count、sc_coverage_start_m、sc_coverage_stop_m、sc_events（z,zstep 列表）
+- **⚠️ SC 数值未验证**：v0.14 smoke/charge/收敛数值是 **manual-scheduler 行为**（保留于 sc_audit_diagnostics.py 作为 manual characterization），native-scheduler 的 SC 数值验证属 v0.15。**禁止把 SC 描述为 fully validated**
 - 修复后诊断（`sc_audit_diagnostics.py`）：smoke 500 fC 纯漂移 0.5m：σx 725→2436µm（+236%）、σz 302→1595µm（+428%）、εnx 0.080→0.120（+49%）；charge 0→1000 fC 单调（σx 725→3439、σz 302→2269、εnx→0.149）；N(1e4/5e4/1e5)±0.3%、mesh(33/63/127)±0.6% 收敛；SC step≤5 建议（step=10 偏 7.5%）
 - OCELOT SC 算法（源码证据 sc.py）：NGP 沉积（:191-193）→ 自由空间 Green 卷积 + FFT 解 Poisson（:85-168，ASTRA 同款）→ 三线性插值（:202-204）→ 含纵向 Ez（:200,248）→ 束团静止系解场、实验室系 kick（横向乘 1−β0²，:246-248）；电荷来自 q_array（:241）；默认 low_order_kick=True、random_mesh=False、random_seed=10
 
@@ -113,11 +116,11 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 - AG 数组位级不变；OCELOT 同 seed 位级可复现
 
 ## 14. 下一阶段 v0.14.1 明确任务（SC 正式 beamline 验证）
-1. **证明 manual counter fix 与 OCELOT native scheduler 严格等价**：用 `navi.get_next_step()`（track() 原生路径）同 seed 对照跑 SC，位级或阈值内一致后才继续；不等价必须定位差异来源，不得绕过
+1. **✅ 已完成（2026-08-12）**：manual counter vs OCELOT native scheduler 等价性证明。结论：非一般等价（T5–T7 差异），production 已迁移到 native `get_next_step()`（SC ON），SC OFF 位级不变；SC 覆盖修正为 cathode→sample。证据：`validation/test_sc_scheduler_equivalence.py`（T1–T7 + acceptance A–F 全 PASS）、run_all 6/6、r56 不变
 2. 修 AG charge semantics：`run_ag` 注入 `Ne_phys = Q/e`（≈6.24e5），并验证 SC OFF 路径不受影响、AG 发射度等其余量不变
 3. 实现 SC 状态机（五态 + HARD FAIL，取代 silent fallback）；消除双状态源（step>=4 与 config.enabled 统一）
-4. 固化 SC 收敛参数：N=5e4、mesh=63³、SC step≤5（文档化到 config 注释与报告）
-5. AG vs OCELOT SC 四级比较：方向（SC ON/OFF 一致）→ 趋势（charge 单调一致）→ 量级 → 定量解释；**禁止逐点强求一致**；ε 增长差异（AG 天然不增长 vs OCELOT PIC 投影增长）是模型能力差异，**不可调参消除**
+4. 固化 SC 收敛参数：N=5e4、mesh=63³、SC step≤5（文档化到 config 注释与报告）——**属 v0.15**
+5. AG vs OCELOT SC 四级比较：方向（SC ON/OFF 一致）→ 趋势（charge 单调一致）→ 量级 → 定量解释；**禁止逐点强求一致**；ε 增长差异（AG 天然不增长 vs OCELOT PIC 投影增长）是模型能力差异，**不可调参消除**——**属 v0.15**
 6. 每步回归：no-SC 6 项 + r56 保持 PASS；SC ON 结果附完整 provenance（含 seed/mesh/step/N）
 - **禁止**：声称 SC fully validated；修改 AG/OCELOT 核心；调整测试阈值；进入 GUI；优化参数让两模型吻合
 
@@ -126,10 +129,10 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 - `shared/params.py`：解析 + derived() + lattice helpers；`shared/beam_physics.py`：BeamReference；`shared/constants.py`：物理常数；`shared/ocelot_coords.py`：rparticles 语义访问
 - `GPT模拟/ued_beamline_v2.py`：主路由（可 import；main() 守卫）；`AG/run_shared.py`：AG 统一输出
 - `validation/beam_result.py`：统一容器；`validation/reference.py`：解析参考；`validation/config_check.py`：只读一致性
-- 测试：`test_config_consistency / test_drift / test_solenoid / test_rf / test_full_beamline / test_gpt_route_equivalence`；**`test_r56_convention.py` 冻结禁改**；`sc_audit_diagnostics.py`（SC 诊断只读脚本）
+- 测试：`test_config_consistency / test_drift / test_solenoid / test_rf / test_full_beamline / test_gpt_route_equivalence`；**`test_r56_convention.py` 冻结禁改**；`test_sc_scheduler_equivalence.py`（SC 调度 characterization + production acceptance A–F，mesh 33³ 加速）；`sc_audit_diagnostics.py`（manual-scheduler SC characterization 只读脚本）
 
 ## 16. 关键报告
-- `validation/reports/SC_integration_audit.md`：P0 根因 + 修复 + 诊断数值 + 状态机设计
+- `validation/reports/SC_integration_audit.md`：P0 根因 + 修复 + 诊断数值 + 状态机设计（§8 附 v0.14.1 manual→native 实施状态更新）
 - `validation/reports/SC_ocelot_source_audit.md`：OCELOT SC 源码逐条行号证据
 - `validation/reports/SC_AG_model_audit.md`：AG SC 公式与模型假设
 - `validation/reports/R56_convention_resolution.md`：B 类结论全推导
@@ -151,11 +154,11 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 
 ## 19. 交接后第一件事
 1. `git log --oneline -5` + `git status` 确认工作树干净
-2. 读本文件 §0-§14；如需细节读 CHECKPOINTS.md 最新条目
+2. 读本文件 §0-§14；如需细节读 validation/CHECKPOINTS.md 最新条目（注：CHANGELOG/CHECKPOINTS 目录在 validation/ 下）
 3. 跑 `validation/run_all.py` + `test_r56_convention.py` 确认基线
 4. 按 §14 任务书开始 v0.14.1 的第一步（scheduler 等价性证明），每步带回归
 
-## 20. 阶段历史沿革（速览，细节在 CHECKPOINTS.md）
+## 20. 阶段历史沿革（速览，细节在 validation/CHECKPOINTS.md）
 - v0.10（基线冻结）：drift/solenoid/RF 分节验证通过，冻结标签 + baselines/ 目录；当时发现并修了 OCELOT 能量单位 bug（energy 应是总能量 GeV）、ε_nz 一致性、螺线管耦合、RF 薄透镜统一
 - v0.11（lattice 单一来源）：主路由硬编码几何（0.100/0.240/0.355/0.777）清除，`build_lattice_from_shared` + 多实例 + step 语义；新增 `test_gpt_route_equivalence`
 - v0.12（架构治理）：常量单一来源 constants.py、provenance meta、Level-1 config_check、7 份 v0.12 审计报告
@@ -188,7 +191,8 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 ## 24. 测试命令与协作约定
 - 一键回归：`/opt/anaconda3/bin/python3 validation/run_all.py`（约 30-40 分钟，输出 6 项 PASS/FAIL + 样品面数值）
 - 冻结表征：`... validation/test_r56_convention.py`（结果必须逐位不变）
-- SC 诊断：`... validation/sc_audit_diagnostics.py`（smoke + charge scan + convergence，只读）
+- SC 调度：`... validation/test_sc_scheduler_equivalence.py`（native vs manual 事件对照 + production 验收 A–F，约 3 分钟）
+- SC 诊断（manual characterization）：`... validation/sc_audit_diagnostics.py`（smoke + charge scan + convergence，只读）
 - iCloud 同步：`... scripts/sync_to_phone.py --gpt-review`（任务收尾自动跑；A 级归档到 gpt_review/versions/<时间戳>/，iCloud 侧一律 .txt）
 - 任务完成输出规范：按根目录 AGENTS.md 的审核输出格式（一句话结论、修改文件表、关键代码、数据流、验收数值表、风险、审核材料、可复制 GPT 摘要）；每轮任务结束自动跑 gpt-review 同步
 - 停止条件：任何测试失败 / AG 位级变化 / config SHA 意外变化 / 元件顺序或长度不一致 / RF kick 数量异常 / NaN / 为拟合而调参——立即停止并报告第一个失败点
@@ -205,6 +209,7 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 - [ ] 任何新代码遵守红线（§17）与 AGENTS.md 规范
 
 ## 26. 与旧 session 的边界
-- 上一 session 的最后结论：SC 审计完成、P0 修复落地、SC 诊断通过（smoke +236% 等）、no-SC 六项回归 + R56 全部 PASS、AG 位级不变
+- 上一 session 的最后结论：SC 审计完成、P0 修复落地（manual counter）、SC 诊断通过（smoke +236% 等）、no-SC 六项回归 + R56 全部 PASS、AG 位级不变
 - 上一 session 的已知债务（v0.14.1 处理）：manual counter 等价性未证、AG Ne 语义未修、SC 状态机未建、SC 收敛参数未固化
-- 本 session 未做的事：SC 正式 beamline 对比、AG vs OCELOT SC 物理比较、GUI、优化、任何 SC 参数调整——全部留给 v0.14.1 及以后
+- **v0.14.1 task 1（本 session）已处理**：scheduler 等价性证明 + production 迁移到 native（见 §10/§14）
+- 本 session 未做的事：AG charge semantics（task 2）、SC 状态机（task 3）、SC 正式 beamline 对比（v0.15）、GUI、优化、任何 SC 参数调整——全部留给后续任务
