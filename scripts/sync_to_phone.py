@@ -158,6 +158,8 @@ GPT_REVIEW_CORE = [
     "validation/test_rf.py",
     "validation/test_full_beamline.py",
     "validation/test_gpt_route_equivalence.py",
+    # v0.14.1 task 1: SC scheduler characterization + production acceptance
+    "validation/test_sc_scheduler_equivalence.py",
     "validation/run_all.py",
     "GPT模拟/ued_beamline_v2.py",
     "AG/run_shared.py",
@@ -175,6 +177,7 @@ GPT_REVIEW_A_LEVEL = [
     "core_validation_test_rf.py",
     "core_validation_test_full_beamline.py",
     "core_validation_test_gpt_route_equivalence.py",
+    "core_validation_test_sc_scheduler_equivalence.py",
     "latest_report.txt",
     "latest_review.png",
     "latest_changelog.txt",
