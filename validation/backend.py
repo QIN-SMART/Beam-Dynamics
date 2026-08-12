@@ -159,8 +159,16 @@ def run_ag(cfg, section, n_points=2000, sc_enabled=None,
 
     get_alpha_interpolators()
 
+    # v0.14.1 task 2 (AG charge semantics): the AG SC force is ∝ Ne·e
+    # (beam_dynamics_6d.py:379 fb = η·Ne·e/(8π√π·ε₀)).  Ne must be the
+    # PHYSICAL bunch charge Q/e — beam.n_particles is only the OCELOT
+    # macroparticle numerical resolution.  (Previously Ne=n_particles=5e4
+    # → 8 fC equivalent charge instead of the configured 100 fC: 12.5× too
+    # weak.  SC OFF is unaffected: Ne is forced to 0.0 below.)
+    ne_phys = abs(P.beam.Q_C) / E_SI
+
     beam0 = make_beam_100keV(
-        Ne=P.beam.n_particles,
+        Ne=ne_phys,
         beamK_eV=P.beam.energy_keV * 1e3,
         sigma_x0_um=ib["spot_rms_um"], sigma_y0_um=ib["spot_rms_um"],
         sigma_z0_um=ib["bunch_length_um"],
@@ -270,6 +278,7 @@ def run_ag(cfg, section, n_points=2000, sc_enabled=None,
         meta={"section": section, "solenoid_coupling": solenoid_coupling,
               "sc_enabled": sc_enabled, "switches": sw, "config_sha": config_sha(cfg),
               "provenance": _provenance(cfg),
+              "ag_ne_phys": ne_phys,
               "rf": "thin-lens (H) + transverse kick" if sw["rf_transverse_kick"]
               else "thin-lens (H) only"},
     )

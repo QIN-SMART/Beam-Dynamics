@@ -912,3 +912,47 @@
     run_ocelot SC OFF, config seed 42, N=5e4, dz=0.001, full beamline
     canonical value = 7790fd9c2a2b
   实现与断言位于 validation/test_sc_scheduler_equivalence.py production_acceptance F.
+
+## [drift] 2026-08-12 19:38
+  drift transverse: AG vs OCELOT max rel dev {'sigma_x_um': 0.3767796798699752, 'sigma_y_um': 0.6342565055448941, 'sigma_z_um': 1.8000933557025134, 'eps_nx_mm_mrad': 0.31140389844541905, 'sigma_delta_e3': 0.02245152598292253}
+  analytic drift reference matches (sigma_x=sqrt(s0^2+(s0'z)^2))
+  sigma_z analytic ref sqrt(sz0^2+(z*sd_p/gamma^2)^2): AG=1.75% OCELOT=0.08%
+  R56 adapter σ_δ_p semantic: 0.022% (PASS)
+  verdict: PASS — report /Users/qin/Desktop/shuyan/Beam_dynamics_simu/validation/reports/drift_AG_vs_OCELOT.png
+
+## [solenoid] 2026-08-12 19:39
+  ROOT CAUSE: AG reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, dnu_y⊃+2ks·nu_x, dsxy⊃2ks(sx^2-sy^2)).
+  Exact hard-edge 4x4 (Brown-Chao, == OCELOT SolenoidTM) gives sxy≡0 for a round uncorrelated beam; AG coupling creates spurious sxy and under-focusing.
+  k_s (Bz/(2Brho)) = 22.3751 m^-1, k_s^2 = 500.65 m^-2 — identical in both backends.
+  AG as-is:  sx=963.4 sy=2468.9 um (x-y broken)
+  AG coupling=OFF: sx=1984.2 sy=1984.2 um
+  OCELOT (ref):    sx=1996.2 sy=1991.4 um
+  AG(off) vs OCELOT sigma_x max dev = 0.60% (<1% PASS) | AG(on) = 389.28% (FAIL)
+  FIX: for round beams the coupling must be disabled in the AG force adapter (validation/backend.run_ag solenoid_coupling=False). Not a parameter tune; enforces exact round-beam transport.
+
+## [rf] 2026-08-12 19:39
+  RF standardized to thin-lens in BOTH backends (Option A):
+    longitudinal kick δ += K·sin(φ+kz), H=-9.779 m^-1, σ_δ AG=2.953e-3 vs OCELOT=2.939e-3 (PASS)
+    transverse RF kick K_trans=-2.680 m^-1 added to OCELOT; σ_x AG=1119 vs OCELOT=1122 um (PASS)
+    switch OFF vs ON: AG σ_x 1119->542 um, OCELOT 1122->537 um (both read physics_switches.rf_transverse_kick)
+    R56 adapter: kick semantic PASS, routing {'drift': 0, 'solenoid': 0, 'rf': 1, 'full': 1} PASS
+  RESOLVED: input δ-variable convention (B) fixed by the adapter; σ_z at sample agrees with AG (residual few-µm at the waist).
+
+## [full] 2026-08-12 19:39
+  full beamline: sample devs — σ_x 0.60%, σ_y 0.36%, σ_δ 0.46%, ε_nx 0.53%, ε_ny 0.26% (PASS)
+  R56 resolved — σ_z: AG 477 vs OCELOT 474 um (0.63%, PASS), waist Δz=0.4 mm
+  switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [v0.14.1-ag-charge-semantics] 2026-08-12
+  AG SC 电荷语义修复（Ne = Q/e，与 n_particles 解耦）:
+  - 根因: AG SC 力 ∝ Ne·e（beam_dynamics_6d.py:379 fb=η·Ne·e/...）；
+    之前 adapter 注入 Ne=beam.n_particles=5e4 → 等效 8 fC，比 config 100 fC 弱 12.5 倍
+  - 修复（仅 adapter 层）: validation/backend.py::run_ag 与 AG/run_shared.py
+    Ne_phys = abs(Q_C)/E_SI（≈6.24e5 @100 fC）；AG 核心/SC 公式未改；
+    SC OFF 路径 Ne 强制 0 → 位级不变
+  - 新增测试: validation/test_ag_charge_semantics.py
+    Test1 charge semantics: Q=10/50/100/500/1000 fC → ag_ne_phys==Q/e（rel=0.0）、
+    σx(Q) 单调 2202→12106 µm（Q=100 fC 时 SC ON σx=3656.8 µm，旧 bug 值明显更小）
+    Test2 n_particles invariance: Q=100 fC，n=1e4/5e4/1e5 → SC ON 位级一致、
+    SC OFF 位级一致且 sample σx=1984.191/σz=477.001（v0.13 基线精确保持）
+  - 回归: run_all 6/6 PASS + r56 不变；AG SC OFF 位级不变

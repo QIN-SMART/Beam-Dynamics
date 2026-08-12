@@ -15,7 +15,7 @@
 
 ## 1. 当前阶段 / 下一阶段
 - 当前阶段：**v0.14.1 SC 正式 beamline 验证准备**——task 1（scheduler equivalence）已完成：manual counter 经 characterization 证明非一般等价（T5–T7），production 已迁移到 OCELOT native `get_next_step()` 调度（SC ON），SC OFF 位级不变；SC 覆盖修正为 cathode→sample（0→0.777m，stop anchor 来自 lattice.elements 的 sample marker）；**SC 数值仍未经正式 beamline 验证，未声称 fully validated**
-- 下一阶段：**v0.14.1 task 2（AG charge semantics）→ task 3（SC runtime state contract）**；任务书见 §14
+- 下一阶段：**v0.14.1 task 3（SC runtime state contract）**（task 1/2 已完成，见 §10/§11/§14）；任务书见 §14
 - 长期目标：SC 验证完成后才有资格讨论 AG/OCELOT 的 SC 物理对比、GUI、优化
 - 禁止事项：修改 AG/OCELOT 核心、RF 方程、R56、lattice 几何、测试阈值、随机策略；未获批准不得实施 v0.14.1 task 2/3 或任何 SC 参数调整
 
@@ -94,13 +94,12 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 - 修复后诊断（`sc_audit_diagnostics.py`）：smoke 500 fC 纯漂移 0.5m：σx 725→2436µm（+236%）、σz 302→1595µm（+428%）、εnx 0.080→0.120（+49%）；charge 0→1000 fC 单调（σx 725→3439、σz 302→2269、εnx→0.149）；N(1e4/5e4/1e5)±0.3%、mesh(33/63/127)±0.6% 收敛；SC step≤5 建议（step=10 偏 7.5%）
 - OCELOT SC 算法（源码证据 sc.py）：NGP 沉积（:191-193）→ 自由空间 Green 卷积 + FFT 解 Poisson（:85-168，ASTRA 同款）→ 三线性插值（:202-204）→ 含纵向 Ez（:200,248）→ 束团静止系解场、实验室系 kick（横向乘 1−β0²，:246-248）；电荷来自 q_array（:241）；默认 low_order_kick=True、random_mesh=False、random_seed=10
 
-## 11. AG charge semantics bug（未修，P1）
-- AG SC 强度：`fb = η·Ne·e/(8π√π·ε₀)`（beam_dynamics_6d.py:379），其中 **Ne = config beam.n_particles = 50000** → 等效总电荷 Ne·e = **8 fC**
-- config `beam.charge_fC = 100` 是**物理束团电荷** → AG SC 偏弱 **12.5 倍**（8 vs 100 fC）
-- 语义区分（重要）：**beam.n_particles 对 OCELOT 是宏粒子数值计数（数值精度参数）；beam.charge_fC 是物理束团电荷**
-- **正确方向：AG SC 应最终使用 Ne_phys = Q/e**（≈100e-15/1.6e-19 ≈ 6.24e5 电子），但**当前尚未实施**
-- 影响面：仅 SC ON 路径（SC OFF 时 fb∝Ne 但 force=0，无影响，这正是此前 no-SC 基线不受影响的原因）
-- 修复会改变 SC ON 数值 → 按规则先报告暂停，列入 v0.14.1 任务 2
+## 11. AG charge semantics bug（已修复，v0.14.1 task 2）
+- 根因：AG SC 强度 `fb = η·Ne·e/(8π√π·ε₀)`（beam_dynamics_6d.py:379）中 **Ne = config beam.n_particles = 50000** → 等效总电荷 Ne·e = **8 fC**，比物理束团电荷（`beam.charge_fC = 100`）弱 **12.5 倍**
+- 语义区分：**beam.n_particles 对 OCELOT 是宏粒子数值计数（数值精度参数）；beam.charge_fC 是物理束团电荷**
+- **修复（2026-08-12，仅 adapter 层）**：`validation/backend.py::run_ag` 与 `AG/run_shared.py` 注入 `Ne_phys = abs(Q_C)/E_SI`（≈6.24e5 @100 fC）；AG 核心与 SC 公式未改；SC OFF 路径 Ne 强制 0 → 位级不变
+- 验证：`validation/test_ag_charge_semantics.py`——charge 语义（ag_ne_phys==Q/e，σx(Q) 单调 2202→12106 µm）与 n_particles 不变性（Q 固定时 n=1e4/5e4/1e5 SC ON 位级一致；SC OFF sample σx=1984.191/σz=477.001 与 v0.13 基线精确一致）；run_all 6/6 + r56 不变
+- 注意：SC ON 数值较旧 bug 时代明显增大（Q=100 fC 时 σx≈3657 µm vs 旧 ~1 mm 量级）——**预期变化，不是回归**
 
 ## 12. SC runtime state 未解决问题
 - 无状态机。设计（未实施）：`sc_requested → sc_configured → sc_available → sc_attached → sc_effective`；规则：sc_effective 应为 True 但 SpaceCharge 无法导入/挂载 → **HARD FAIL**（当前 `except ImportError: pass` 是静默降级，属违规）
@@ -121,7 +120,7 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 
 ## 14. 下一阶段 v0.14.1 明确任务（SC 正式 beamline 验证）
 1. **✅ 已完成（2026-08-12）**：manual counter vs OCELOT native scheduler 等价性证明。结论：非一般等价（T5–T7 差异），production 已迁移到 native `get_next_step()`（SC ON），SC OFF 位级不变；SC 覆盖修正为 cathode→sample。证据：`validation/test_sc_scheduler_equivalence.py`（T1–T7 + acceptance A–F 全 PASS）、run_all 6/6、r56 不变
-2. 修 AG charge semantics：`run_ag` 注入 `Ne_phys = Q/e`（≈6.24e5），并验证 SC OFF 路径不受影响、AG 发射度等其余量不变
+2. **✅ 已完成（2026-08-12）**：AG charge semantics——`run_ag`/`run_shared` 注入 `Ne_phys = Q/e`（≈6.24e5）；SC OFF 位级不变（1984.191/477.001）；n_particles 不变性测试全 PASS（详见 CHECKPOINTS v0.14.1-ag-charge-semantics）
 3. 实现 SC 状态机（五态 + HARD FAIL，取代 silent fallback）；消除双状态源（step>=4 与 config.enabled 统一）
 4. 固化 SC 收敛参数：N=5e4、mesh=63³、SC step≤5（文档化到 config 注释与报告）——**属 v0.15**
 5. AG vs OCELOT SC 四级比较：方向（SC ON/OFF 一致）→ 趋势（charge 单调一致）→ 量级 → 定量解释；**禁止逐点强求一致**；ε 增长差异（AG 天然不增长 vs OCELOT PIC 投影增长）是模型能力差异，**不可调参消除**——**属 v0.15**
@@ -215,5 +214,5 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 ## 26. 与旧 session 的边界
 - 上一 session 的最后结论：SC 审计完成、P0 修复落地（manual counter）、SC 诊断通过（smoke +236% 等）、no-SC 六项回归 + R56 全部 PASS、AG 位级不变
 - 上一 session 的已知债务（v0.14.1 处理）：manual counter 等价性未证、AG Ne 语义未修、SC 状态机未建、SC 收敛参数未固化
-- **v0.14.1 task 1（本 session）已处理**：scheduler 等价性证明 + production 迁移到 native（见 §10/§14）
-- 本 session 未做的事：AG charge semantics（task 2）、SC 状态机（task 3）、SC 正式 beamline 对比（v0.15）、GUI、优化、任何 SC 参数调整——全部留给后续任务
+- **v0.14.1 task 1/2（本 session）已处理**：scheduler 迁移到 native（§10）、AG charge semantics（§11）
+- 本 session 未做的事：SC 状态机（task 3）、SC 正式 beamline 对比（v0.15）、GUI、优化、任何 SC 参数调整——全部留给后续任务

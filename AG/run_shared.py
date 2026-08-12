@@ -91,8 +91,14 @@ def main():
 
     get_alpha_interpolators()
 
+    # v0.14.1 task 2 (AG charge semantics): AG SC strength is ∝ Ne·e
+    # (beam_dynamics_6d.py:379); Ne must be the PHYSICAL bunch charge Q/e.
+    # beam.n_particles is only the OCELOT macroparticle numerical resolution
+    # (previously Ne=n_particles → 8 fC instead of the configured 100 fC).
+    ne_phys = abs(b["charge_fC"] * 1e-15) / E_SI
+
     beam0 = make_beam_100keV(
-        Ne=b["n_particles"],
+        Ne=ne_phys,
         beamK_eV=b["energy_keV"] * 1e3,
         sigma_x0_um=ib["spot_rms_um"],
         sigma_y0_um=ib["spot_rms_um"],
