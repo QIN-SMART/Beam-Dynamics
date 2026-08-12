@@ -45,11 +45,10 @@ from ocelot.cpbd.magnetic_lattice import MagneticLattice  # noqa: E402
 from ocelot.cpbd.beam import generate_parray  # noqa: E402
 from ocelot.cpbd.navi import Navigator  # noqa: E402
 from ocelot.cpbd.track import tracking_step  # noqa: E402
-try:
-    from ocelot.cpbd.sc import SpaceCharge  # noqa: E402
-    _HAS_SC = True
-except ImportError:
-    _HAS_SC = False
+# v0.14.1 task 3: import failure here is a HARD FAIL when SC is requested —
+# there is NO silent fallback to no-SC (the old `except ImportError: _HAS_SC
+# = False` pattern is removed).
+from ocelot.cpbd.sc import SpaceCharge  # noqa: E402
 
 import matplotlib  # noqa: E402
 matplotlib.use("Agg")
@@ -149,6 +148,22 @@ STEP_ACTIVE = {
 }
 
 
+def sc_requested_from(cfg, step):
+    """v0.14.1 task 3 — single source of the requested SC state.
+
+    - `step` defines only ROUTE CAPABILITY / stage: steps 1-3 have NO SC
+      capability; only step 4 may run SC.
+    - config `space_charge.enabled` (or an explicit function argument)
+      defines the REQUESTED physics state.
+    - the runtime state contract (shared/sc_state.py) decides the final
+      EFFECTIVE state.
+
+    Returns the effective requested flag = config.enabled AND step >= 4.
+    Step 1-3 never auto-enables SC even if config requests it.
+    """
+    return bool(cfg["space_charge"]["enabled"]) and step >= 4
+
+
 def apply_rf_kick(parray, rf_elem, rf_transverse=False):
     """Standardized thin-lens RF kick for ONE rf_cavity instance.
 
@@ -203,9 +218,12 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     # OCELOT p() = ΔE/(c·p0), NOT Δp/p0 → p_oc = β0·δ_p  (R56 audit: B)
     set_p_oc(p, beta * np.random.normal(0.0, sigma_delta, N))
 
+    # v0.14.1 task 3: requested SC must construct (construction failure =
+    # HARD FAIL, no silent fallback).  The effective state is decided by
+    # the runtime contract: effective = (sc_apply_count > 0).
     sc_proc = (SpaceCharge(step=sc.get("step", 1),
                            nmesh_xyz=list(sc.get("mesh", [63, 63, 63])))
-               if (sc_enabled and _HAS_SC) else None)
+               if sc_enabled else None)
 
     navi = Navigator(lat, unit_step=dz_track)
     if sc_proc is not None and len(lat.sequence) >= 2:
@@ -285,10 +303,15 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     results["rf_kicks_applied"] = len(rf_done)
     if sc_proc is not None:
         results["sc_scheduler"] = "ocelot_native"
+        results["sc_requested"] = bool(sc_enabled)
         results["sc_apply_count"] = sc_apply_count
+        results["sc_effective"] = sc_apply_count > 0
         results["sc_coverage_start_m"] = float(sc_proc.s_start)
         results["sc_coverage_stop_m"] = float(sc_proc.s_stop)
         results["sc_events"] = sc_events
+    else:
+        results["sc_requested"] = bool(sc_enabled)
+        results["sc_effective"] = False
     return results
 
 
@@ -305,12 +328,18 @@ def main():
         print(f"  unknown step {step}; must be 1..4")
         sys.exit(1)
 
-    sc_on = step >= 4 and _HAS_SC
+    # v0.14.1 task 3: single source of the requested SC state.
+    #   step       → route capability only (1-3: no SC; 4: may run SC)
+    #   config     → requested physics state
+    #   runtime    → state contract decides the effective state
+    # The old dual source (step>=4 for display vs config.enabled for the
+    # saved output) is REMOVED — one run, one recorded state.
+    sc_requested = sc_requested_from(cfg, step)
     # keep_zero_markers: SC ON keeps the cathode/sample zero-length markers
     # in the runtime sequence so SpaceCharge attaches as cathode → sample
     # (v0.14.1 task 1; SC OFF sequence unchanged).
     lat, rf_elems = build_lattice_from_shared(cfg, STEP_ACTIVE[step],
-                                              keep_zero_markers=sc_on)
+                                              keep_zero_markers=sc_requested)
     total_length = sum(e.l for e in lat.sequence)
     n_sol = sum(1 for e in _lattice_elements(cfg)
                 if e["type"] == "solenoid" and e["length"] > 0)
@@ -328,10 +357,10 @@ def main():
           f"({'OFF' if not rf_elems else [round(e['z_start']*1e3) for e in rf_elems]})")
     print(f"  RF transverse kick: "
           f"{'ON' if switches.get('rf_transverse_kick', False) else 'OFF'} (shared switch)")
-    print(f"  SC: {'ON' if (step >= 4 and _HAS_SC) else 'OFF'}  "
-          f"(Navigator physics process, mesh={sc.get('mesh')})" if step >= 4 else "")
+    print(f"  SC: {'ON' if sc_requested else 'OFF'}  "
+          f"(requested via config AND step>=4, mesh={sc.get('mesh')})")
 
-    r = run_beamline(lat, rf_elems, sc_enabled=(step >= 4))
+    r = run_beamline(lat, rf_elems, sc_enabled=sc_requested)
 
     print(f"  {'Probe':>8s}  {'σ_x(μm)':>9s}  {'σ_y(μm)':>9s}  {'σ_t(fs)':>9s}  "
           f"{'ε_x(mm·mrad)':>13s}  {'σ_δ(e-3)':>9s}")
@@ -404,11 +433,14 @@ def main():
     print("\n  Validation complete.")
 
     # ═══════════════════════════════════════════════════════
-    #  unified output (shared schema) — SC flag follows the config
+    #  unified output (shared schema) — v0.14.1 task 3:
+    #  the run above already used the single requested source (config AND
+    #  step>=4); there is NO second run with a different SC flag, so the
+    #  terminal display and the saved sc_enabled can never disagree.
     # ═══════════════════════════════════════════════════════
-    sc_flag = sc["enabled"]
-    r_uni = r if (sc_flag == (step >= 4)) else run_beamline(lat, rf_elems,
-                                                            sc_enabled=sc_flag)
+    sc_effective = bool(r.get("sc_effective", False))
+    sc_flag = sc_effective
+    r_uni = r
 
     probes = []
     for z_mm in z_probes_mm:
@@ -432,7 +464,10 @@ def main():
             "switches": switches,
             "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
             "reported_delta": "delta_p = dp/p0",
-            "conversion_beta": float(beta)}
+            "conversion_beta": float(beta),
+            # v0.14.1 task 3: requested AND effective recorded together
+            "sc_requested": sc_requested,
+            "sc_effective": sc_effective}
     if r_uni.get("sc_scheduler") == "ocelot_native":
         meta["sc_scheduler"] = r_uni["sc_scheduler"]
         meta["sc_apply_count"] = r_uni["sc_apply_count"]
@@ -441,6 +476,8 @@ def main():
     path = write_results("GPT", probes, r_uni["history"], config_sha(cfg),
                          sc_flag, meta=meta)
     print(f"\n  Unified output -> {path}")
+    print(f"  SC state: requested={sc_requested} effective={sc_effective} "
+          f"(saved sc_enabled={sc_flag})")
 
 
 if __name__ == "__main__":

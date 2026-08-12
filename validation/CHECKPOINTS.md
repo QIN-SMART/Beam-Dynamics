@@ -956,3 +956,57 @@
     Test2 n_particles invariance: Q=100 fC，n=1e4/5e4/1e5 → SC ON 位级一致、
     SC OFF 位级一致且 sample σx=1984.191/σz=477.001（v0.13 基线精确保持）
   - 回归: run_all 6/6 PASS + r56 不变；AG SC OFF 位级不变
+
+## [drift] 2026-08-12 20:06
+  drift transverse: AG vs OCELOT max rel dev {'sigma_x_um': 0.3767796798699752, 'sigma_y_um': 0.6342565055448941, 'sigma_z_um': 1.8000933557025134, 'eps_nx_mm_mrad': 0.31140389844541905, 'sigma_delta_e3': 0.02245152598292253}
+  analytic drift reference matches (sigma_x=sqrt(s0^2+(s0'z)^2))
+  sigma_z analytic ref sqrt(sz0^2+(z*sd_p/gamma^2)^2): AG=1.75% OCELOT=0.08%
+  R56 adapter σ_δ_p semantic: 0.022% (PASS)
+  verdict: PASS — report /Users/qin/Desktop/shuyan/Beam_dynamics_simu/validation/reports/drift_AG_vs_OCELOT.png
+
+## [solenoid] 2026-08-12 20:06
+  ROOT CAUSE: AG reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, dnu_y⊃+2ks·nu_x, dsxy⊃2ks(sx^2-sy^2)).
+  Exact hard-edge 4x4 (Brown-Chao, == OCELOT SolenoidTM) gives sxy≡0 for a round uncorrelated beam; AG coupling creates spurious sxy and under-focusing.
+  k_s (Bz/(2Brho)) = 22.3751 m^-1, k_s^2 = 500.65 m^-2 — identical in both backends.
+  AG as-is:  sx=963.4 sy=2468.9 um (x-y broken)
+  AG coupling=OFF: sx=1984.2 sy=1984.2 um
+  OCELOT (ref):    sx=1996.2 sy=1991.4 um
+  AG(off) vs OCELOT sigma_x max dev = 0.60% (<1% PASS) | AG(on) = 389.28% (FAIL)
+  FIX: for round beams the coupling must be disabled in the AG force adapter (validation/backend.run_ag solenoid_coupling=False). Not a parameter tune; enforces exact round-beam transport.
+
+## [rf] 2026-08-12 20:07
+  RF standardized to thin-lens in BOTH backends (Option A):
+    longitudinal kick δ += K·sin(φ+kz), H=-9.779 m^-1, σ_δ AG=2.953e-3 vs OCELOT=2.939e-3 (PASS)
+    transverse RF kick K_trans=-2.680 m^-1 added to OCELOT; σ_x AG=1119 vs OCELOT=1122 um (PASS)
+    switch OFF vs ON: AG σ_x 1119->542 um, OCELOT 1122->537 um (both read physics_switches.rf_transverse_kick)
+    R56 adapter: kick semantic PASS, routing {'drift': 0, 'solenoid': 0, 'rf': 1, 'full': 1} PASS
+  RESOLVED: input δ-variable convention (B) fixed by the adapter; σ_z at sample agrees with AG (residual few-µm at the waist).
+
+## [full] 2026-08-12 20:07
+  full beamline: sample devs — σ_x 0.60%, σ_y 0.36%, σ_δ 0.46%, ε_nx 0.53%, ε_ny 0.26% (PASS)
+  R56 resolved — σ_z: AG 477 vs OCELOT 474 um (0.63%, PASS), waist Δz=0.4 mm
+  switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [v0.14.1-sc-runtime-state-contract] 2026-08-12
+  SC runtime state contract（Task 3，统一状态机 + HARD FAIL + 双状态源消除）:
+  - 新模块 shared/sc_state.py: SCState（requested/available/configured/attached/
+    apply_count/effective）+ HARD FAIL（import/构造/attach 失败、apply_count==0、
+    coverage != cathode→sample 均 raise；禁止 silent fallback）
+  - backend.run_ocelot: SC ON 直接 import/构造/attach（无 except ImportError: pass）；
+    tracking 后 verify_final(0.0, sample.z_start)（lattice.elements 派生，无硬编码）；
+    meta 统一 to_meta()（sc_requested/sc_effective/...）
+  - GPT 主路由: 顶部 import 去 try/except；sc_requested_from(cfg,step)=
+    config.enabled AND step>=4（step=capability，config=requested）；
+    main 单次运行（r_uni 消除）→ 终端显示与 saved sc_enabled 不可能不一致；
+    meta 记录 requested+effective
+  - AG meta 对齐: physical_charge_C / physical_electron_number（正式 contract）+
+    sc_requested/sc_effective；ag_ne_phys 保留 alias（非正式）
+  - 测试 validation/test_sc_runtime_state.py A-F 全 PASS:
+    A requested=False → effective=False + canonical hash 7790fd9c2a2b
+    B requested=True → 六态全真 + coverage [0,0.777]
+    C import 不可用 → HARD FAIL（sys.modules=None 模拟，ModuleNotFoundError）
+    D apply_count==0 → HARD FAIL（RuntimeError: "SC did not run"）
+    E step/config 双源统一（step1-3 永不自动 SC；step4 由 config 决定；runtime 验证）
+    F saved JSON sc_enabled == sc_effective
+  - 回归: Task1 scheduler equivalence（A-F PASS）、Task2 charge semantics（PASS）、
+    run_all 6/6、r56 不变

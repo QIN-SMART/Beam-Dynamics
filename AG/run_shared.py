@@ -200,6 +200,13 @@ def main():
     meta = {
         "model": "Kelisani 6D envelope ODE",
         "sc_model": "ellipsoid" if sc_enabled else "none (Ne=0)",
+        # v0.14.1 task 3 AG state metadata (formal contract, mirrors
+        # validation/backend.py::run_ag):
+        "sc_requested": sc_enabled,
+        "sc_effective": sc_enabled,        # AG: requested==effective (Ne=Q/e)
+        "physical_charge_C": b["charge_fC"] * 1e-15,
+        "physical_electron_number": ne_phys,
+        "ag_ne_phys": ne_phys,             # alias (task 2 compat, NOT formal)
         "rf": "thin-lens (apply_rf_thin_lens H) + transverse kick",
         "solenoid_coupling": SOLENOID_COUPLING,
         "solenoid_coupling_note": "round-beam correction, see validation/CHECKPOINTS.md",

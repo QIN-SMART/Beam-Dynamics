@@ -66,9 +66,14 @@ def test1_charge_semantics(cfg):
         c = cfg_with(cfg, charge_fC=q)
         r = run_ag(c, SECTION, sc_enabled=True, solenoid_coupling=False)
         ne_expected = abs(q * 1e-15) / E_SI
-        ne_actual = r.meta["ag_ne_phys"]
+        # formal contract fields (v0.14.1 task 3); ag_ne_phys kept as alias
+        ne_actual = r.meta["physical_electron_number"]
         rel = abs(ne_actual - ne_expected) / ne_expected
-        ok1 = rel < 1e-12
+        ok1 = (rel < 1e-12
+               and r.meta["physical_charge_C"] == abs(q * 1e-15)
+               and r.meta["ag_ne_phys"] == ne_actual
+               and r.meta["sc_requested"] is True
+               and r.meta["sc_effective"] is True)
         sx = sample(r, "sigma_x_um")
         sz = sample(r, "sigma_z_um")
         rows.append((q, ne_actual, sx, sz))
@@ -115,10 +120,15 @@ def test2_nparticles_invariance(cfg):
             sx, sz = sample(r0, "sigma_x_um"), sample(r0, "sigma_z_um")
             bx = abs(sx - AG_BASELINE_X) < 1e-3
             bz = abs(sz - AG_BASELINE_Z) < 1e-3
+            sc_off_ok = (r0.meta["sc_requested"] is False
+                         and r0.meta["sc_effective"] is False
+                         and r0.meta["physical_electron_number"] > 0
+                         and r0.meta["physical_charge_C"] == 100e-15)
             print(f"  {tag}: sample σx={sx:.3f} (baseline {AG_BASELINE_X})  "
-                  f"σz={sz:.3f} (baseline {AG_BASELINE_Z})  "
-                  f"{'PASS' if (bx and bz) else 'FAIL'}")
-            ok &= (bx and bz)
+                  f"σz={sz:.3f} (baseline {AG_BASELINE_Z})  state"
+                  f" requested/effective=False = {sc_off_ok}  "
+                  f"{'PASS' if (bx and bz and sc_off_ok) else 'FAIL'}")
+            ok &= (bx and bz and sc_off_ok)
     return ok
 
 

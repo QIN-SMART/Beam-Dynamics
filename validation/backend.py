@@ -278,7 +278,14 @@ def run_ag(cfg, section, n_points=2000, sc_enabled=None,
         meta={"section": section, "solenoid_coupling": solenoid_coupling,
               "sc_enabled": sc_enabled, "switches": sw, "config_sha": config_sha(cfg),
               "provenance": _provenance(cfg),
-              "ag_ne_phys": ne_phys,
+              # v0.14.1 task 3 AG state metadata (formal contract):
+              "sc_requested": bool(sc_enabled),
+              "sc_effective": bool(sc_enabled),   # AG: requested==effective
+                                                   # (adapter injects Ne=Q/e)
+              "physical_charge_C": float(P.beam.Q_C),
+              "physical_electron_number": float(ne_phys),
+              "ag_ne_phys": float(ne_phys),       # alias (task 2 compat, NOT
+                                                   # the formal contract)
               "rf": "thin-lens (H) + transverse kick" if sw["rf_transverse_kick"]
               else "thin-lens (H) only"},
     )
@@ -396,21 +403,36 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
     delta_p = np.random.normal(0.0, ib["sigma_delta"], N)
     set_p_oc(p, d["beta"] * delta_p)
 
+    # ── SC runtime state contract (v0.14.1 task 3) ──
+    # sc_requested → available → configured → attached → apply_count → effective.
+    # HARD FAIL on every broken link when requested: NO silent fallback.
+    from shared.sc_state import SCState  # noqa: E402
+    sc_state = SCState(requested=bool(sc_enabled))
     sc_proc = None
     if sc_enabled:
+        # HARD FAIL on import: `except ImportError: pass` is FORBIDDEN.
+        from ocelot.cpbd.sc import SpaceCharge   # ImportError propagates
+        sc_state.available = True
+        sc_cfg = cfg["space_charge"]
         try:
-            from ocelot.cpbd.sc import SpaceCharge
-            sc_cfg = cfg["space_charge"]
-            # v0.14 P1 fix: mesh/step must come from shared config, not defaults
-            # sc_step/sc_mesh: optional overrides (scheduler tests only)
+            # v0.14 P1 fix: mesh/step must come from shared config, not
+            # defaults; sc_step/sc_mesh are optional overrides (scheduler
+            # tests only)
             sc_proc = SpaceCharge(step=sc_step or sc_cfg.get("step", 1),
                                   nmesh_xyz=list(sc_mesh or sc_cfg.get("mesh", [63, 63, 63])))
-        except ImportError:
-            pass
+        except Exception as e:
+            sc_state.fail(f"SpaceCharge construction failed: {e!r}")
+        sc_state.configured = True
 
     navi = Navigator(lat, unit_step=dz)
-    if sc_proc is not None and len(lat.sequence) >= 2:
-        navi.add_physics_proc(sc_proc, lat.sequence[0], lat.sequence[-1])
+    if sc_proc is not None:
+        try:
+            navi.add_physics_proc(sc_proc, lat.sequence[0], lat.sequence[-1])
+        except Exception as e:
+            sc_state.fail(f"add_physics_proc failed: {e!r}")
+        sc_state.attached = True
+        sc_state.coverage_start_m = float(sc_proc.s_start)
+        sc_state.coverage_stop_m = float(sc_proc.s_stop)
 
     # RF kicks at each cavity entrance — standardized thin-lens model
     # (see _ocelot_rf_kick; longitudinal in δ_p converted to p_oc = β0·δ_p,
@@ -462,6 +484,11 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
         z_arr = np.array(z_list)
         sx = np.array(sx_list); sy = np.array(sy_list); sz = np.array(sz_list)
         enx = np.array(enx_list); eny = np.array(eny_list); sd = np.array(sd_list)
+        # HARD FAIL (post-tracking): apply_count>0 and coverage == cathode→sample
+        sc_state.apply_count = sc_apply_count
+        sample_elems = [e for e in _lattice_elements(cfg) if e["type"] == "sample"]
+        exp_stop = float(sample_elems[0]["z_start"]) if sample_elems else 0.0
+        sc_state.verify_final(0.0, exp_stop)
         meta = {"section": section, "sc_enabled": sc_enabled, "switches": sw,
                 "config_sha": config_sha(cfg), "provenance": _provenance(cfg),
                 "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
@@ -469,12 +496,10 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
                 "conversion_beta": float(d["beta"]),
                 "rf_kicks_applied": rf_kicks_applied,
                 "sc_scheduler": "ocelot_native",
-                "sc_apply_count": sc_apply_count,
-                "sc_coverage_start_m": float(sc_proc.s_start),
-                "sc_coverage_stop_m": float(sc_proc.s_stop),
                 "sc_events": sc_events,
                 "rf": "thin-lens (K·sin) + transverse kick K_trans"
                 if sw["rf_transverse_kick"] else "thin-lens (K·sin) only"}
+        meta.update(sc_state.to_meta())
     else:
         # ── SC OFF: UNCHANGED loop (tracking_step) — bitwise identical to
         # v0.13 (no PhysProc attached, sc_proc is None).
@@ -505,6 +530,8 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
                 "reported_delta": "delta_p = dp/p0",
                 "conversion_beta": float(d["beta"]),
                 "rf_kicks_applied": rf_kicks_applied,
+                "sc_requested": False,
+                "sc_effective": False,
                 "rf": "thin-lens (K·sin) + transverse kick K_trans"
                 if sw["rf_transverse_kick"] else "thin-lens (K·sin) only"}
 
