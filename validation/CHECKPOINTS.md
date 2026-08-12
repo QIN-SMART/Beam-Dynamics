@@ -849,3 +849,57 @@
   full beamline: sample devs — σ_x 0.60%, σ_y 0.36%, σ_δ 0.46%, ε_nx 0.53%, ε_ny 0.26% (PASS)
   R56 resolved — σ_z: AG 477 vs OCELOT 474 um (0.63%, PASS), waist Δz=0.4 mm
   switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [drift] 2026-08-12 18:46
+  drift transverse: AG vs OCELOT max rel dev {'sigma_x_um': 0.3767796798699752, 'sigma_y_um': 0.6342565055448941, 'sigma_z_um': 1.8000933557025134, 'eps_nx_mm_mrad': 0.31140389844541905, 'sigma_delta_e3': 0.02245152598292253}
+  analytic drift reference matches (sigma_x=sqrt(s0^2+(s0'z)^2))
+  sigma_z analytic ref sqrt(sz0^2+(z*sd_p/gamma^2)^2): AG=1.75% OCELOT=0.08%
+  R56 adapter σ_δ_p semantic: 0.022% (PASS)
+  verdict: PASS — report /Users/qin/Desktop/shuyan/Beam_dynamics_simu/validation/reports/drift_AG_vs_OCELOT.png
+
+## [solenoid] 2026-08-12 18:46
+  ROOT CAUSE: AG reduced-order Larmor coupling (dnu_x⊃-2ks·nu_y, dnu_y⊃+2ks·nu_x, dsxy⊃2ks(sx^2-sy^2)).
+  Exact hard-edge 4x4 (Brown-Chao, == OCELOT SolenoidTM) gives sxy≡0 for a round uncorrelated beam; AG coupling creates spurious sxy and under-focusing.
+  k_s (Bz/(2Brho)) = 22.3751 m^-1, k_s^2 = 500.65 m^-2 — identical in both backends.
+  AG as-is:  sx=963.4 sy=2468.9 um (x-y broken)
+  AG coupling=OFF: sx=1984.2 sy=1984.2 um
+  OCELOT (ref):    sx=1996.2 sy=1991.4 um
+  AG(off) vs OCELOT sigma_x max dev = 0.60% (<1% PASS) | AG(on) = 389.28% (FAIL)
+  FIX: for round beams the coupling must be disabled in the AG force adapter (validation/backend.run_ag solenoid_coupling=False). Not a parameter tune; enforces exact round-beam transport.
+
+## [rf] 2026-08-12 18:46
+  RF standardized to thin-lens in BOTH backends (Option A):
+    longitudinal kick δ += K·sin(φ+kz), H=-9.779 m^-1, σ_δ AG=2.953e-3 vs OCELOT=2.939e-3 (PASS)
+    transverse RF kick K_trans=-2.680 m^-1 added to OCELOT; σ_x AG=1119 vs OCELOT=1122 um (PASS)
+    switch OFF vs ON: AG σ_x 1119->542 um, OCELOT 1122->537 um (both read physics_switches.rf_transverse_kick)
+    R56 adapter: kick semantic PASS, routing {'drift': 0, 'solenoid': 0, 'rf': 1, 'full': 1} PASS
+  RESOLVED: input δ-variable convention (B) fixed by the adapter; σ_z at sample agrees with AG (residual few-µm at the waist).
+
+## [full] 2026-08-12 18:46
+  full beamline: sample devs — σ_x 0.60%, σ_y 0.36%, σ_δ 0.46%, ε_nx 0.53%, ε_ny 0.26% (PASS)
+  R56 resolved — σ_z: AG 477 vs OCELOT 474 um (0.63%, PASS), waist Δz=0.4 mm
+  switches: {'rf_longitudinal_kick': True, 'rf_transverse_kick': False} == {'rf_longitudinal_kick': True, 'rf_transverse_kick': False}
+
+## [v0.14.1-scheduler-equivalence] 2026-08-12
+  SC scheduler production 修复（manual counter → OCELOT native get_next_step）:
+  - characterization: validation/test_sc_scheduler_equivalence.py（T1-T7 + production acceptance A-F）
+    T1-T4 事件级等价（rparticles maxdiff ≤4e-16 浮点末位）；T5 尾段丢失+名义 zstep、
+    T6 区间外触发（80 vs 40 事件）、T7 生产 lattice 覆盖 [0,0.422) vs [0,0.777)
+    → manual counter clone 退役（非一般等价）
+  - production 修复: validation/backend.py::run_ocelot / GPT模拟/ued_beamline_v2.py::run_beamline
+    SC ON → native get_next_step() loop（== ocelot track() 核心）；SC OFF → 原 tracking_step
+    循环逐字保留（位级不变）
+  - stop anchor: SC ON 时 runtime sequence 保留 cathode/sample 零长 marker（来自
+    lattice.elements，无硬编码），PhysProc attach 为 cathode→sample，SC 覆盖 [0, 0.777)；
+    SC OFF sequence 不变（已验证带/不带 marker 位级一致 maxdiff=0.0）
+  - metadata（SC ON 只读）: sc_scheduler=ocelot_native / sc_apply_count /
+    sc_coverage_start_m / sc_coverage_stop_m / sc_events
+  - 验收 A-F 全 PASS: coverage==sample(z_start)、apply_count=777、step=1/5 事件与
+    native reference 一致（777/156）、尾段不丢（z=0.453 zstep=0.003）、区间外无 apply、
+    SC OFF 数组 hash 7790fd9c2a2b 与修改前位级一致（样品值 1996.205/474.022）
+  - 回归: run_all 6/6 PASS + r56 表征不变（slope −1.163624、残差 2.11e-3、naive 0.826）
+  - 主路由 step4: SC effect DETECTED（max Δσ_x 54.71% @100 fC，native 调度）
+  - 注: hash e041d6ae9fb7a0d2 的计算对象未在文档/代码中记录，无法复现；
+    以修改前/后数组位级对比（7790fd9c2a2b）作为 no-SC 保持的直接证据
+  - v0.14 smoke/charge/convergence 数值标注为 manual-scheduler characterization
+    （sc_audit_diagnostics.py 保留 manual 复刻），非 native production baseline

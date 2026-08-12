@@ -102,13 +102,19 @@ E_total_eV = gamma * MEC2_KEV * 1e3
 #  generic lattice builder — lattice.elements is the ONLY geometry source
 # ═══════════════════════════════════════════════════════════
 
-def build_lattice_from_shared(cfg, active_types):
+def build_lattice_from_shared(cfg, active_types, keep_zero_markers=False):
     """Build an OCELOT lattice from lattice.elements (single source).
 
     active_types : set of element types that keep their real physics
       ({"drift"}, {"drift","solenoid"}, {"drift","solenoid","rf_cavity"}).
       Every other length-bearing element is kept as a plain Drift of the
       SAME length, so the total length and sample position are preserved.
+
+    keep_zero_markers : with SC ON (v0.14.1 task 1) the zero-length
+      cathode/sample markers are kept in the runtime sequence so the
+      SpaceCharge PhysProc can be attached as cathode → sample (coverage
+      ends at the sample position, not at the start of the last non-zero
+      element).  SC OFF keeps the previous sequence (markers skipped).
 
     Returns (lattice, rf_elems) where rf_elems is the ordered list of ACTIVE
     rf_cavity elements (one analytic kick per instance, in lattice order).
@@ -118,6 +124,8 @@ def build_lattice_from_shared(cfg, active_types):
     for e in _lattice_elements(cfg):
         etype, L = e["type"], e["length"]
         if L <= 0:
+            if keep_zero_markers and etype in ("cathode", "sample"):
+                elems.append(Drift(l=0.0, eid=e["name"] + "_MARKER"))
             continue                       # cathode / sample markers
         if etype == "solenoid" and "solenoid" in active_types:
             B = e["parameters"]["B_field_T"]
@@ -204,7 +212,6 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
         navi.add_physics_proc(sc_proc, lat.sequence[0], lat.sequence[-1])
 
     total_length = sum(e.l for e in lat.sequence)
-    n_steps = int(total_length / dz_track) if total_length > 0 else 1
 
     probes_rem = {f"z{z:.0f}mm": z * 1e-3 for z in z_probes_mm}
     results = {}
@@ -213,29 +220,15 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
     rf_done = set()
     rf_transverse = bool(switches.get("rf_transverse_kick", False))
 
-    # v0.14 P0 fix: OCELOT invokes PhysProcs (SpaceCharge) inside its track()
-    # loop via the process counter; tracking_step() applies transfer maps only.
-    # Replicate the counter mechanism here (apply every step×dz AFTER the map).
-    # With SC off sc_proc is None → identical to the previous behaviour.
-    for step_i in range(n_steps):
-        z_before = navi.z0
-
+    def _kick_rf_if_due(z_start):
         # one analytic kick per rf instance, at its own z_start, once
         for rf_elem in rf_elems:
             z_rf = rf_elem["z_start"]
-            if z_rf not in rf_done and z_before >= z_rf - 1e-12:
+            if z_rf not in rf_done and z_start >= z_rf - 1e-12:
                 apply_rf_kick(p, rf_elem, rf_transverse)
                 rf_done.add(z_rf)
 
-        tracking_step(lat, p, dz_track, navi)
-        if sc_proc is not None:
-            sc_proc.counter -= 1
-            if sc_proc.counter <= 0:
-                sc_proc.z0 = navi.z0
-                sc_proc.apply(p, sc_proc.step * dz_track)
-                sc_proc.counter = sc_proc.step
-        z = navi.z0
-
+    def _sample(z, z_before):
         # full z-history for the unified output (shared schema)
         xa = p.x(); xpa = p.px(); ya = p.y(); ypa = p.py()
         hist["z_mm"].append(z * 1e3)
@@ -245,7 +238,6 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
         hist["sigma_delta_e3"].append(np.std(p.p()) / beta * 1e3)   # δ_p = p_oc/β0
         hist["eps_nx_mm_mrad"].append(emit(xa, xpa) * beta_gamma * 1e6)
         hist["eps_ny_mm_mrad"].append(emit(ya, ypa) * beta_gamma * 1e6)
-
         for name, z_p in list(probes_rem.items()):
             if z_before <= z_p < z:
                 xa = p.x(); xpa = p.px(); ya = p.y(); ypa = p.py()
@@ -259,8 +251,44 @@ def run_beamline(lat, rf_elems, sc_enabled=False, nparticles=None):
                     "sigma_delta_e3": np.std(p.p()) / beta * 1e3,   # δ_p = p_oc/β0
                 }
                 del probes_rem[name]
+
+    sc_apply_count = 0
+    sc_events = []
+    if sc_proc is not None:
+        # ── SC ON: OCELOT NATIVE scheduler (v0.14.1 task 1) ──
+        # get_next_step() is the exact mechanism of ocelot.track(); the
+        # SpaceCharge PhysProc is triggered by the Navigator process counter
+        # with coverage [s_start, s_stop) set by the add_physics_proc anchors
+        # (cathode → sample).  The manual counter clone is retired.
+        for t_maps, dz_step, proc_list, phys_steps in navi.get_next_step():
+            z_start = navi.z0 - dz_step
+            _kick_rf_if_due(z_start)
+            for tm in t_maps:
+                tm.apply(p)
+            for proc, zstep in zip(proc_list, phys_steps):
+                proc.z0 = navi.z0
+                proc.apply(p, zstep)
+                if proc is sc_proc:
+                    sc_apply_count += 1
+                    sc_events.append((float(navi.z0), float(zstep)))
+            _sample(navi.z0, z_start)
+    else:
+        # ── SC OFF: unchanged loop (tracking_step; no PhysProc attached) ──
+        n_steps = int(total_length / dz_track) if total_length > 0 else 1
+        for step_i in range(n_steps):
+            z_before = navi.z0
+            _kick_rf_if_due(z_before)
+            tracking_step(lat, p, dz_track, navi)
+            _sample(navi.z0, z_before)
+
     results["history"] = hist
     results["rf_kicks_applied"] = len(rf_done)
+    if sc_proc is not None:
+        results["sc_scheduler"] = "ocelot_native"
+        results["sc_apply_count"] = sc_apply_count
+        results["sc_coverage_start_m"] = float(sc_proc.s_start)
+        results["sc_coverage_stop_m"] = float(sc_proc.s_stop)
+        results["sc_events"] = sc_events
     return results
 
 
@@ -277,7 +305,12 @@ def main():
         print(f"  unknown step {step}; must be 1..4")
         sys.exit(1)
 
-    lat, rf_elems = build_lattice_from_shared(cfg, STEP_ACTIVE[step])
+    sc_on = step >= 4 and _HAS_SC
+    # keep_zero_markers: SC ON keeps the cathode/sample zero-length markers
+    # in the runtime sequence so SpaceCharge attaches as cathode → sample
+    # (v0.14.1 task 1; SC OFF sequence unchanged).
+    lat, rf_elems = build_lattice_from_shared(cfg, STEP_ACTIVE[step],
+                                              keep_zero_markers=sc_on)
     total_length = sum(e.l for e in lat.sequence)
     n_sol = sum(1 for e in _lattice_elements(cfg)
                 if e["type"] == "solenoid" and e["length"] > 0)
@@ -400,6 +433,11 @@ def main():
             "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
             "reported_delta": "delta_p = dp/p0",
             "conversion_beta": float(beta)}
+    if r_uni.get("sc_scheduler") == "ocelot_native":
+        meta["sc_scheduler"] = r_uni["sc_scheduler"]
+        meta["sc_apply_count"] = r_uni["sc_apply_count"]
+        meta["sc_coverage_start_m"] = r_uni["sc_coverage_start_m"]
+        meta["sc_coverage_stop_m"] = r_uni["sc_coverage_stop_m"]
     path = write_results("GPT", probes, r_uni["history"], config_sha(cfg),
                          sc_flag, meta=meta)
     print(f"\n  Unified output -> {path}")

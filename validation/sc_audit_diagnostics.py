@@ -73,8 +73,11 @@ def track_drift_sc(cfg, q_fC, mesh, nparticles, sc_step=1, sc_on=True):
     hist = {"z_mm": [], "sigma_x_um": [], "sigma_y_um": [], "sigma_z_um": [],
             "sigma_delta_e3": [], "eps_nx_mm_mrad": [], "eps_ny_mm_mrad": []}
     n_steps = int(L_DRIFT / DZ)
-    # v0.14 P0: tracking_step() applies maps only; SpaceCharge must be
-    # triggered via the process counter (same as OCELOT track()).
+    # NOTE (v0.14.1 task 1): this script deliberately KEEPS the manual
+    # counter replica — it is the "manual-scheduler SC characterization"
+    # reference (v0.14 smoke/charge/convergence numbers).  Production
+    # (validation/backend.py, GPT模拟/ued_beamline_v2.py) now uses the
+    # OCELOT NATIVE scheduler (get_next_step); SC OFF paths unchanged.
     for _ in range(n_steps):
         tracking_step(lat, p, DZ, navi)
         if sc is not None:

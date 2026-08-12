@@ -57,6 +57,15 @@ sc_effective = apply 至少被调用一次（需 get_next_step 机制）
 2. SpaceCharge 构造传 `nmesh_xyz=config.mesh, step=config.step`（当前值相同，改后数值不变）。
 3. AG 侧与 SC 状态机：留待 SC 正式验证阶段。
 
+> **实施状态更新（v0.14.1 task 1，2026-08-12）**：上述建议 1 的最终落地方式是
+> OCELOT NATIVE 调度（`navi.get_next_step()`），生产代码已从 manual counter 迁移
+> （`validation/backend.py::run_ocelot`、`GPT模拟/ued_beamline_v2.py::run_beamline`；
+> 详见 `validation/test_sc_scheduler_equivalence.py` characterization T5–T7 与
+> production acceptance A–F）。**本报告 §9–11 的诊断数值是 manual-scheduler 行为**
+> （`sc_audit_diagnostics.py` 保留 manual counter 复刻作为 manual-scheduler
+> characterization 参考），不得作为 native-scheduler production baseline；
+> native-scheduler 的 SC 数值验证属于 v0.15。
+
 ## 9-11. 诊断结果（修复后：SC 生效）
 smoke（500 fC 纯漂移 0.5m，同 seed）：SC OFF vs ON
 - σx: 725.3 → 2436.1 µm（**+235.9%**）· σz: 302.0 → 1594.9 µm（+428%）· εnx: 0.080 → 0.120（+49%）· SC effect **PRESENT**

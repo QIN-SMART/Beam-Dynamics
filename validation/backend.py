@@ -309,7 +309,7 @@ def _ocelot_rf_kick(p, rf_elem, cfg, d, sw):
 # ════════════════════════════════════════════════════════════════════════
 
 def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
-               switches=None):
+               switches=None, sc_step=None, sc_mesh=None):
     """Drive OCELOT macroparticle tracking through the section.
 
     Uses ocelot's Drift / Solenoid / Cavity elements and Navigator —
@@ -344,7 +344,15 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
     for e in _lattice_elements(cfg):
         etype, z0, z1, L = e["type"], e["z_start"], e["z_start"] + e["length"], e["length"]
         if L <= 0:
-            continue                       # cathode / sample markers
+            # v0.14.1 task 1: with SC ON the zero-length cathode/sample
+            # markers are KEPT in the runtime sequence so the PhysProc can be
+            # attached as cathode → sample (SC coverage ends at the sample
+            # position, NOT at the start of the last non-zero element).
+            # SC OFF keeps the previous sequence (markers skipped) — the
+            # tracking_step loop below stays bitwise identical to v0.13.
+            if sc_enabled and etype in ("cathode", "sample"):
+                elems.append(Drift(l=0.0, eid=f"{e['name']}_MARKER"))
+            continue
         if etype == "solenoid" and "solenoid" in active_types:
             k_sol = 1.602176634e-19 * e["parameters"]["B_field_T"] / (2.0 * d["p_SI"])
             elems.append(Solenoid(l=L, k=k_sol, eid=e["name"]))
@@ -385,8 +393,9 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
             from ocelot.cpbd.sc import SpaceCharge
             sc_cfg = cfg["space_charge"]
             # v0.14 P1 fix: mesh/step must come from shared config, not defaults
-            sc_proc = SpaceCharge(step=sc_cfg.get("step", 1),
-                                  nmesh_xyz=list(sc_cfg.get("mesh", [63, 63, 63])))
+            # sc_step/sc_mesh: optional overrides (scheduler tests only)
+            sc_proc = SpaceCharge(step=sc_step or sc_cfg.get("step", 1),
+                                  nmesh_xyz=list(sc_mesh or sc_cfg.get("mesh", [63, 63, 63])))
         except ImportError:
             pass
 
@@ -402,40 +411,93 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
                  and "rf_cavity" in active_types]
                 if sw["rf_longitudinal_kick"] else [])
     rf_kicks_applied = 0
-
-    n_steps = int(total_length / dz) if total_length > 0 else 1
-    z_arr = np.zeros(n_steps); sx = np.zeros(n_steps); sy = np.zeros(n_steps)
-    sz = np.zeros(n_steps); enx = np.zeros(n_steps); eny = np.zeros(n_steps)
-    sd = np.zeros(n_steps)
     rf_done = set()
-    # v0.14 P0 fix: OCELOT invokes PhysProcs (SpaceCharge) inside its track()
-    # loop via the process counter; tracking_step() applies transfer maps only.
-    # Replicate the counter mechanism here (counter=step initially, apply every
-    # step×dz AFTER the map, like track()).  With SC off sc_proc is None and
-    # the loop is identical to the previous tracking_step behaviour.
-    for i in range(n_steps):
-        z_before = navi.z0
-        for rf_elem in rf_elems:
-            z_rf = rf_elem["z_start"]
-            if z_rf not in rf_done and z_before >= z_rf - 1e-12:
-                _ocelot_rf_kick(p, rf_elem, cfg, d, sw)
-                rf_done.add(z_rf)
-                rf_kicks_applied += 1
-        tracking_step(lat, p, dz, navi)
-        if sc_proc is not None:
-            sc_proc.counter -= 1
-            if sc_proc.counter <= 0:
-                sc_proc.z0 = navi.z0
-                sc_proc.apply(p, sc_proc.step * dz)
-                sc_proc.counter = sc_proc.step
-        z = navi.z0
-        x = p.x(); xp = p.px(); y = p.y(); yp = p.py()
-        z_arr[i] = z
-        sx[i] = np.std(x); sy[i] = np.std(y)
-        sz[i] = np.std(p.tau()) * d["beta"]
-        enx[i] = emit(x, xp) * d["beta_gamma"]
-        eny[i] = emit(y, yp) * d["beta_gamma"]
-        sd[i] = np.std(p.p()) / d["beta"]   # report δ_p = p_oc/β0 (Δp/p0)
+    sc_apply_count = 0
+    if sc_proc is not None:
+        # ── SC ON: OCELOT NATIVE scheduler (v0.14.1 task 1) ──
+        # Navigator.get_next_step() is the exact mechanism of ocelot.track():
+        # PhysProc (SpaceCharge) is triggered by the Navigator process counter,
+        # and its coverage [s_start, s_stop) is defined by the add_physics_proc
+        # anchors (cathode → sample).  The former manual counter clone is
+        # retired (scheduler characterization T5–T7 showed it is not generally
+        # equivalent: lost tail / out-of-coverage applies).
+        z_list, sx_list, sy_list, sz_list = [], [], [], []
+        enx_list, eny_list, sd_list = [], [], []
+        sc_events = []                       # (z, zstep) per SC apply
+        for t_maps, dz_step, proc_list, phys_steps in navi.get_next_step():
+            # RF kick at the step START (same semantics as the SC OFF loop:
+            # kick is applied to the particle state at the cavity entrance).
+            z_start = navi.z0 - dz_step
+            for rf_elem in rf_elems:
+                z_rf = rf_elem["z_start"]
+                if z_rf not in rf_done and z_start >= z_rf - 1e-12:
+                    _ocelot_rf_kick(p, rf_elem, cfg, d, sw)
+                    rf_done.add(z_rf)
+                    rf_kicks_applied += 1
+            for tm in t_maps:
+                tm.apply(p)
+            for proc, zstep in zip(proc_list, phys_steps):
+                proc.z0 = navi.z0
+                proc.apply(p, zstep)
+                if proc is sc_proc:
+                    sc_apply_count += 1
+                    sc_events.append((float(navi.z0), float(zstep)))
+            z = navi.z0
+            x = p.x(); xp = p.px(); y = p.y(); yp = p.py()
+            z_list.append(z)
+            sx_list.append(np.std(x)); sy_list.append(np.std(y))
+            sz_list.append(np.std(p.tau()) * d["beta"])
+            enx_list.append(emit(x, xp) * d["beta_gamma"])
+            eny_list.append(emit(y, yp) * d["beta_gamma"])
+            sd_list.append(np.std(p.p()) / d["beta"])
+        z_arr = np.array(z_list)
+        sx = np.array(sx_list); sy = np.array(sy_list); sz = np.array(sz_list)
+        enx = np.array(enx_list); eny = np.array(eny_list); sd = np.array(sd_list)
+        meta = {"section": section, "sc_enabled": sc_enabled, "switches": sw,
+                "config_sha": config_sha(cfg), "provenance": _provenance(cfg),
+                "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
+                "reported_delta": "delta_p = dp/p0",
+                "conversion_beta": float(d["beta"]),
+                "rf_kicks_applied": rf_kicks_applied,
+                "sc_scheduler": "ocelot_native",
+                "sc_apply_count": sc_apply_count,
+                "sc_coverage_start_m": float(sc_proc.s_start),
+                "sc_coverage_stop_m": float(sc_proc.s_stop),
+                "sc_events": sc_events,
+                "rf": "thin-lens (K·sin) + transverse kick K_trans"
+                if sw["rf_transverse_kick"] else "thin-lens (K·sin) only"}
+    else:
+        # ── SC OFF: UNCHANGED loop (tracking_step) — bitwise identical to
+        # v0.13 (no PhysProc attached, sc_proc is None).
+        n_steps = int(total_length / dz) if total_length > 0 else 1
+        z_arr = np.zeros(n_steps); sx = np.zeros(n_steps); sy = np.zeros(n_steps)
+        sz = np.zeros(n_steps); enx = np.zeros(n_steps); eny = np.zeros(n_steps)
+        sd = np.zeros(n_steps)
+        for i in range(n_steps):
+            z_before = navi.z0
+            for rf_elem in rf_elems:
+                z_rf = rf_elem["z_start"]
+                if z_rf not in rf_done and z_before >= z_rf - 1e-12:
+                    _ocelot_rf_kick(p, rf_elem, cfg, d, sw)
+                    rf_done.add(z_rf)
+                    rf_kicks_applied += 1
+            tracking_step(lat, p, dz, navi)
+            z = navi.z0
+            x = p.x(); xp = p.px(); y = p.y(); yp = p.py()
+            z_arr[i] = z
+            sx[i] = np.std(x); sy[i] = np.std(y)
+            sz[i] = np.std(p.tau()) * d["beta"]
+            enx[i] = emit(x, xp) * d["beta_gamma"]
+            eny[i] = emit(y, yp) * d["beta_gamma"]
+            sd[i] = np.std(p.p()) / d["beta"]   # report δ_p = p_oc/β0 (Δp/p0)
+        meta = {"section": section, "sc_enabled": sc_enabled, "switches": sw,
+                "config_sha": config_sha(cfg), "provenance": _provenance(cfg),
+                "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
+                "reported_delta": "delta_p = dp/p0",
+                "conversion_beta": float(d["beta"]),
+                "rf_kicks_applied": rf_kicks_applied,
+                "rf": "thin-lens (K·sin) + transverse kick K_trans"
+                if sw["rf_transverse_kick"] else "thin-lens (K·sin) only"}
 
     return BeamResult(
         route="OCELOT",
@@ -447,12 +509,5 @@ def run_ocelot(cfg, section, n_particles=None, dz=0.001, sc_enabled=None,
         eps_ny_mm_mrad=eny * 1e6,
         energy_keV=np.full_like(z_arr, P.beam.energy_keV),
         sigma_delta_e3=sd * 1e3,
-        meta={"section": section, "sc_enabled": sc_enabled, "switches": sw,
-              "config_sha": config_sha(cfg), "provenance": _provenance(cfg),
-              "longitudinal_native_coordinate": "p_oc = dE/(c*p0)",
-              "reported_delta": "delta_p = dp/p0",
-              "conversion_beta": float(d["beta"]),
-              "rf_kicks_applied": rf_kicks_applied,
-              "rf": "thin-lens (K·sin) + transverse kick K_trans"
-              if sw["rf_transverse_kick"] else "thin-lens (K·sin) only"},
+        meta=meta,
     )
