@@ -125,6 +125,7 @@ scripts/          sync_to_phone.py（iCloud 同步 + bundle + gpt_review 版本�
 3. **✅ 已完成（2026-08-12）**：SC 状态机（六态 + HARD FAIL，shared/sc_state.py）与双状态源统一（step=capability、config=requested、effective=apply_count>0）；测试 test_sc_runtime_state.py A-F 全 PASS
 4. 固化 SC 收敛参数：N=5e4、mesh=63³、SC step≤5（文档化到 config 注释与报告）——**属 v0.15**
 5. AG vs OCELOT SC 四级比较：方向（SC ON/OFF 一致）→ 趋势（charge 单调一致）→ 量级 → 定量解释；**禁止逐点强求一致**；ε 增长差异（AG 天然不增长 vs OCELOT PIC 投影增长）是模型能力差异，**不可调参消除**——**属 v0.15**
+7. **物理证据链审计（v0.15 新增，来源：GPT 审核意见 2026-08-16）**：为每个 AG SC 公式建立「公式 → 原始论文 → 代码实现行号 → 独立验证」证据链。已知外部锚点：Kelisani et al. 2023 PRA（6D envelope + Gaussian SC，f_b ∝ Ne）、Luiten et al. 2004 PRL（均匀椭球 SC，线性内部场）、van Oudheusden et al. 2010 PRL（95 keV/200 fC RF 压缩，UED 同量级基准）。目标：排除"测试全 PASS 但公式源于 AI 生成"的风险（测试只证明代码符合已规定行为，不证明规定本身正确）。验证方式：复现论文关键图 + 与 OCELOT PIC 独立对比
 6. 每步回归：no-SC 6 项 + r56 保持 PASS；SC ON 结果附完整 provenance（含 seed/mesh/step/N）
 - **禁止**：声称 SC fully validated；修改 AG/OCELOT 核心；调整测试阈值；进入 GUI；优化参数让两模型吻合
 
